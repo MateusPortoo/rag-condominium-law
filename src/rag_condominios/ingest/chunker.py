@@ -31,13 +31,13 @@ def _split_on_separator(text: str, separator: str, chunk_size: int, overlap: int
     else:
         # Character-level fallback: split into individual tokens
         tokens = encoder.encode(text)
-        chunks = []
+        token_chunks: list[str] = []
         start = 0
         while start < len(tokens):
             end = min(start + chunk_size, len(tokens))
-            chunks.append(encoder.decode(tokens[start:end]))
+            token_chunks.append(encoder.decode(tokens[start:end]))
             start = end - overlap if end - overlap > start else end
-        return chunks
+        return token_chunks
 
     chunks: list[str] = []
     current_parts: list[str] = []

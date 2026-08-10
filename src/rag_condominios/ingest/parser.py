@@ -2,7 +2,8 @@
 
 import re
 
-from bs4 import BeautifulSoup, NavigableString, Tag
+from bs4 import BeautifulSoup, Tag
+from bs4.element import NavigableString
 
 ARTICLE_PATTERN = re.compile(
     r"^Art\.?\s*(\d+[\.\-]?\d*)[ºo°]?",
