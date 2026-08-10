@@ -63,7 +63,9 @@ jobs:
         run: pip install "setuptools>=83.0.0"
 
       - name: Audit dependencies
-        run: pip-audit
+        # PYSEC-2026-2447: diskcache (transitive dep of ragas, no fixed version available)
+        # PYSEC-2026-3046: ragas 0.4.x (dev-only eval tool, not in production image)
+        run: pip-audit --ignore-vuln PYSEC-2026-2447 --ignore-vuln PYSEC-2026-3046
 
   docker-build:
     name: Docker Build

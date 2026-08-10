@@ -4,7 +4,11 @@ import json
 import tempfile
 from pathlib import Path
 
-from rag_condominios.eval.loader import EVALUABLE_CATEGORIES, evaluable_cases, load_golden_set
+from rag_condominios.eval.loader import (
+    EVALUABLE_CATEGORIES,
+    evaluable_cases,
+    load_golden_set,
+)
 
 SAMPLE_CASES = [
     {"id": "gs-001", "category": "simple", "question": "Q1", "reference_answer": "A1", "reference_articles": [], "expected_crag_verdict": "correct"},
@@ -16,10 +20,9 @@ SAMPLE_CASES = [
 
 
 def _write_temp_golden_set(cases: list[dict]) -> Path:
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
-    json.dump(cases, tmp)
-    tmp.close()
-    return Path(tmp.name)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
+        json.dump(cases, tmp)
+        return Path(tmp.name)
 
 
 def test_load_golden_set_returns_all_cases() -> None:

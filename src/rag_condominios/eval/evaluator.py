@@ -97,9 +97,9 @@ def evaluate_golden_set(
         eval_cases.append(result)
 
     # Lazy imports — ragas has a broken top-level import on langchain_community.vertexai
-    from datasets import Dataset  # noqa: PLC0415
-    from ragas import evaluate as ragas_evaluate  # noqa: PLC0415
-    from ragas.metrics import (  # noqa: PLC0415
+    from datasets import Dataset
+    from ragas import evaluate as ragas_evaluate
+    from ragas.metrics import (
         answer_relevancy,
         context_precision,
         context_recall,
