@@ -21,9 +21,10 @@ def search_dense(
     top_k: int = TOP_K,
 ) -> list[ScoredPoint]:
     """Search Qdrant with a dense vector and return top_k scored points."""
-    return qdrant.search(
+    response = qdrant.query_points(
         collection_name=COLLECTION_NAME,
-        query_vector=query_vector,
+        query=query_vector,
         limit=top_k,
         with_payload=True,
     )
+    return response.points
