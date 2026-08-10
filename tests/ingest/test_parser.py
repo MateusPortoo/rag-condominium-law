@@ -2,7 +2,6 @@
 
 from rag_condominios.ingest.parser import parse_articles
 
-
 SIMPLE_ARTICLE_HTML = """
 <html><body>
 <h2>Capítulo I — Das Disposições Gerais</h2>
