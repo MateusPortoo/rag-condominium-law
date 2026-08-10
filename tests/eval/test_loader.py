@@ -19,7 +19,7 @@ SAMPLE_CASES = [
 ]
 
 
-def _write_temp_golden_set(cases: list[dict]) -> Path:
+def _write_temp_golden_set(cases: list[dict]) -> Path:  # type: ignore[type-arg]
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as tmp:
         json.dump(cases, tmp)
         return Path(tmp.name)
