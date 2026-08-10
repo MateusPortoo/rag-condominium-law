@@ -1,10 +1,6 @@
 """Unit tests for ingest/analyzer.py."""
 
-from unittest.mock import patch
-
-import pytest
-
-from rag_condominios.ingest.analyzer import analyze_distribution, _compute_percentile
+from rag_condominios.ingest.analyzer import _compute_percentile, analyze_distribution
 
 
 def _make_article(text: str, lei: str = "lei_4591", artigo: str = "Art. 1") -> dict[str, str]:

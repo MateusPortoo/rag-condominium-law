@@ -1,7 +1,5 @@
 """Unit tests for ingest/parser.py using synthetic HTML fixtures."""
 
-import pytest
-
 from rag_condominios.ingest.parser import parse_articles
 
 
