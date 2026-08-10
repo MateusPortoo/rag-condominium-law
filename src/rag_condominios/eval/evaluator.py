@@ -99,7 +99,6 @@ def evaluate_golden_set(
     # Lazy imports — ragas has a broken top-level import on langchain_community.vertexai
     from datasets import Dataset  # type: ignore[import-untyped]
     from ragas import evaluate as ragas_evaluate
-    from ragas.evaluation import EvaluationResult
     from ragas.metrics import (
         answer_relevancy,
         context_precision,
@@ -117,11 +116,10 @@ def evaluate_golden_set(
     })
 
     # RAGAS uses OpenAI internally as LLM judge — uses the key from environment.
-    # evaluate() is typed as EvaluationResult | Executor; synchronous call always
-    # returns EvaluationResult, so we assert to satisfy mypy.
-    scores = ragas_evaluate(dataset, metrics=ragas_metrics)
-    assert isinstance(scores, EvaluationResult)
-    scores_dict = scores.to_pandas().mean().to_dict()
+    # Typed as Any: ragas 0.4.x stubs are incomplete and EvaluationResult is not
+    # explicitly exported, making the union type unresolvable under mypy strict.
+    scores: Any = ragas_evaluate(dataset, metrics=ragas_metrics)
+    scores_dict: dict[str, Any] = scores.to_pandas().mean().to_dict()
 
     # Per-category breakdown
     by_category: dict[str, dict[str, float]] = {}
