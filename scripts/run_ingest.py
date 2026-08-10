@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """CLI script that runs the full ingest pipeline end to end."""
 
 import sys
@@ -9,7 +8,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from rag_condominios.core.config import settings
-from rag_condominios.ingest import downloader, parser, analyzer, chunker, embedder, indexer
+from rag_condominios.ingest import (
+    analyzer,
+    chunker,
+    downloader,
+    embedder,
+    indexer,
+    parser,
+)
 
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP = 77

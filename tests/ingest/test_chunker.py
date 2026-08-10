@@ -3,10 +3,8 @@
 import re
 
 import tiktoken
-import pytest
 
-from rag_condominios.core.models import ArticleChunk
-from rag_condominios.ingest.chunker import chunk_articles, TIKTOKEN_ENCODING
+from rag_condominios.ingest.chunker import TIKTOKEN_ENCODING, chunk_articles
 
 ENCODER = tiktoken.get_encoding(TIKTOKEN_ENCODING)
 

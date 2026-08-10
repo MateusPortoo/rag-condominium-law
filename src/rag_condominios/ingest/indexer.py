@@ -3,7 +3,7 @@
 import pickle
 from pathlib import Path
 
-import bm25s
+import bm25s  # type: ignore[import-untyped]
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 

@@ -51,13 +51,13 @@ def _fetch_and_save(key: str) -> str:
 def download_corpus() -> dict[str, str]:
     """Return HTML for each corpus document, loading from disk if already cached."""
     corpus: dict[str, str] = {}
-    for key in CORPUS_SOURCES:
+    for key, url in CORPUS_SOURCES.items():
         cached = _load_cached(key)
         if cached is not None:
             print(f"[downloader] Loaded {FILE_NAMES[key]} from disk.")
             corpus[key] = cached
         else:
-            print(f"[downloader] Fetching {CORPUS_SOURCES[key]} ...")
+            print(f"[downloader] Fetching {url} ...")
             corpus[key] = _fetch_and_save(key)
             print(f"[downloader] Saved {FILE_NAMES[key]}.")
     return corpus
