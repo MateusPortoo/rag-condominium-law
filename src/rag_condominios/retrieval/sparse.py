@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Any
 
 import bm25s  # type: ignore[import-untyped]
-import numpy as np
 
 TOP_K = 20
 

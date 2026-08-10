@@ -10,7 +10,7 @@ from qdrant_client.models import ScoredPoint
 
 from rag_condominios.retrieval.dense import embed_query, search_dense
 from rag_condominios.retrieval.fusion import reciprocal_rank_fusion
-from rag_condominios.retrieval.sparse import load_index, search_sparse
+from rag_condominios.retrieval.sparse import search_sparse
 
 DEFAULT_BM25_PATH = Path("data/bm25_index.pkl")
 
