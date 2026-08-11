@@ -21,6 +21,11 @@ def build_context(chunks: list[RetrievalResult]) -> str:
     return "\n\n".join(parts)
 
 
+def build_user_message(context: str, query: str) -> str:
+    """Format the user turn: context blocks followed by the question."""
+    return f"Trechos relevantes da legislação:\n\n{context}\n\nPergunta: {query}"
+
+
 def generate(
     query: str,
     chunks: list[RetrievalResult],
@@ -28,7 +33,7 @@ def generate(
 ) -> str:
     """Generate an answer given a query and retrieved context chunks."""
     context = build_context(chunks)
-    user_message = f"Trechos relevantes da legislação:\n\n{context}\n\nPergunta: {query}"
+    user_message = build_user_message(context, query)
 
     response = groq_client.chat.completions.create(
         model=GROQ_MODEL,

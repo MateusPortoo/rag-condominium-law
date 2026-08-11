@@ -2,15 +2,14 @@
 
 from qdrant_client.models import ScoredPoint
 
-RRF_K = 60
-TOP_K = 20
+from rag_condominios.core.config import RRF_K, TOP_K_DEFAULT
 
 
 def reciprocal_rank_fusion(
     dense_results: list[ScoredPoint],
     sparse_results: list[tuple[str, float]],
     k: int = RRF_K,
-    top_k: int = TOP_K,
+    top_k: int = TOP_K_DEFAULT,
 ) -> list[tuple[str, float]]:
     """
     Fuse dense and sparse rankings using RRF.

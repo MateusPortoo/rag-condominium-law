@@ -8,6 +8,7 @@ from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.models import ScoredPoint
 
+from rag_condominios.core.protocols import BM25Retriever
 from rag_condominios.retrieval.dense import embed_query, search_dense
 from rag_condominios.retrieval.fusion import reciprocal_rank_fusion
 from rag_condominios.retrieval.sparse import search_sparse
@@ -29,7 +30,7 @@ def retrieve(
     query: str,
     openai_client: OpenAI,
     qdrant_client: QdrantClient,
-    bm25_retriever: Any,
+    bm25_retriever: BM25Retriever,
     bm25_chunk_ids: list[str],
     top_k: int = 20,
 ) -> list[RetrievalResult]:

@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from rag_condominios.api.schemas import IngestResponse
 from rag_condominios.api.state import AppState
-from rag_condominios.ingest.indexer import COLLECTION_NAME
+from rag_condominios.core.config import COLLECTION_NAME
 from rag_condominios.retrieval.pipeline import DEFAULT_BM25_PATH
 
 router = APIRouter()

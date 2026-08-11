@@ -7,9 +7,9 @@ import bm25s  # type: ignore[import-untyped]
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
+from rag_condominios.core.config import COLLECTION_NAME
 from rag_condominios.core.models import ArticleChunk
 
-COLLECTION_NAME = "condominio_docs"
 VECTOR_SIZE = 1536
 
 
