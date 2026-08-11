@@ -2,7 +2,8 @@
 
 from openai import OpenAI
 
-EMBEDDING_MODEL = "text-embedding-3-small"
+from rag_condominios.core.config import EMBEDDING_MODEL
+
 BATCH_SIZE = 100
 
 

@@ -3,8 +3,9 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 
+from rag_condominios.api.deps import extract_clients
 from rag_condominios.api.schemas import EvaluateResponse
 from rag_condominios.api.state import AppState
 from rag_condominios.eval.evaluator import evaluate_golden_set
@@ -18,19 +19,14 @@ _REPORT_PATH = Path("data/eval_report.json")
 @router.post("/evaluate", response_model=EvaluateResponse)
 def evaluate(request: Request) -> EvaluateResponse:
     state: AppState = request.app.state.rag
-    if not state.is_ready:
-        raise HTTPException(status_code=503, detail="Serviço não inicializado.")
-
-    assert state.openai_client is not None
-    assert state.groq_client is not None
-    assert state.qdrant_client is not None
+    openai_client, groq_client, qdrant_client = extract_clients(state)
 
     cases = evaluable_cases()
     report = evaluate_golden_set(
         cases=cases,
-        openai_client=state.openai_client,
-        qdrant_client=state.qdrant_client,
-        groq_client=state.groq_client,
+        openai_client=openai_client,
+        qdrant_client=qdrant_client,
+        groq_client=groq_client,
         bm25_retriever=state.bm25_retriever,
         bm25_chunk_ids=state.bm25_chunk_ids,
     )

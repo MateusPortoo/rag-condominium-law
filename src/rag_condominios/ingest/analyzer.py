@@ -2,9 +2,8 @@
 
 import tiktoken
 
+from rag_condominios.core.config import TIKTOKEN_ENCODING
 from rag_condominios.core.models import IngestResult
-
-TIKTOKEN_ENCODING = "cl100k_base"
 
 
 def _count_tokens(text: str, encoder: tiktoken.Encoding) -> int:

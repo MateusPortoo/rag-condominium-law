@@ -7,6 +7,7 @@ from groq import Groq
 from openai import OpenAI
 from qdrant_client import QdrantClient
 
+from rag_condominios.core.protocols import BM25Retriever
 from rag_condominios.retrieval.generator import generate
 from rag_condominios.retrieval.pipeline import RetrievalResult, retrieve
 
@@ -48,7 +49,7 @@ def _run_pipeline_for_case(
     openai_client: OpenAI,
     qdrant_client: QdrantClient,
     groq_client: Groq,
-    bm25_retriever: Any,
+    bm25_retriever: BM25Retriever,
     bm25_chunk_ids: list[str],
 ) -> EvalCase:
     """Run retrieval + generation for a single golden set case."""
@@ -80,7 +81,7 @@ def evaluate_golden_set(
     openai_client: OpenAI,
     qdrant_client: QdrantClient,
     groq_client: Groq,
-    bm25_retriever: Any,
+    bm25_retriever: BM25Retriever,
     bm25_chunk_ids: list[str],
 ) -> EvalReport:
     """

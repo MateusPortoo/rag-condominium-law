@@ -7,7 +7,11 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from groq import Groq
+from openai import OpenAI
+from qdrant_client import QdrantClient
 
+from rag_condominios.api.deps import extract_clients
 from rag_condominios.api.schemas import (
     MetricsEntry,
     QueryRequest,
@@ -20,6 +24,7 @@ from rag_condominios.retrieval.generator import (
     GROQ_MODEL,
     SYSTEM_PROMPT,
     build_context,
+    build_user_message,
     generate,
 )
 from rag_condominios.retrieval.pipeline import RetrievalResult, retrieve
@@ -29,7 +34,6 @@ router = APIRouter()
 
 def _crag_verdict(chunks: list[RetrievalResult]) -> Literal["correct", "ambiguous", "incorrect"]:
     # Phase 1 placeholder — cross-encoder CRAG arrives in Phase 2 (DC-01).
-    # When chunks exist we assume retrieval succeeded; "incorrect" when nothing was found.
     return "correct" if chunks else "incorrect"
 
 
@@ -38,14 +42,6 @@ def _sources(chunks: list[RetrievalResult]) -> list[SourceItem]:
         SourceItem(chunk=c.text, score=round(c.rrf_score, 4), artigo=c.artigo)
         for c in chunks[:5]
     ]
-
-
-def _require_ready(state: AppState) -> None:
-    if not state.is_ready:
-        raise HTTPException(
-            status_code=503,
-            detail="Serviço não inicializado. Verifique as variáveis de ambiente.",
-        )
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -58,31 +54,33 @@ async def query_endpoint(
         raise HTTPException(status_code=400, detail="Query inválida.")
 
     state: AppState = request.app.state.rag
-    _require_ready(state)
+    openai_client, groq_client, qdrant_client = extract_clients(state)
 
     if stream:
-        return _build_stream(body.question, state)
-    return _sync_answer(body.question, state)
+        return _build_stream(body.question, state, openai_client, groq_client, qdrant_client)
+    return _sync_answer(body.question, state, openai_client, groq_client, qdrant_client)
 
 
 # ---------------------------------------------------------------------------
 # Sync path
 # ---------------------------------------------------------------------------
 
-def _sync_answer(question: str, state: AppState) -> QueryResponse:
-    assert state.openai_client is not None
-    assert state.groq_client is not None
-    assert state.qdrant_client is not None
-
+def _sync_answer(
+    question: str,
+    state: AppState,
+    openai_client: OpenAI,
+    groq_client: Groq,
+    qdrant_client: QdrantClient,
+) -> QueryResponse:
     t0 = time.monotonic()
     chunks = retrieve(
         query=question,
-        openai_client=state.openai_client,
-        qdrant_client=state.qdrant_client,
+        openai_client=openai_client,
+        qdrant_client=qdrant_client,
         bm25_retriever=state.bm25_retriever,
         bm25_chunk_ids=state.bm25_chunk_ids,
     )
-    answer = generate(question, chunks, state.groq_client)
+    answer = generate(question, chunks, groq_client)
     verdict = _crag_verdict(chunks)
     latency_ms = int((time.monotonic() - t0) * 1000)
 
@@ -115,26 +113,27 @@ def _sse(event: str, data: object) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-def _stream_events(question: str, state: AppState) -> Iterator[str]:
-    assert state.openai_client is not None
-    assert state.groq_client is not None
-    assert state.qdrant_client is not None
-
+def _stream_events(
+    question: str,
+    state: AppState,
+    openai_client: OpenAI,
+    groq_client: Groq,
+    qdrant_client: QdrantClient,
+) -> Iterator[str]:
     t0 = time.monotonic()
     yield _sse("status", {"message": "recuperando documentos..."})
 
     chunks = retrieve(
         query=question,
-        openai_client=state.openai_client,
-        qdrant_client=state.qdrant_client,
+        openai_client=openai_client,
+        qdrant_client=qdrant_client,
         bm25_retriever=state.bm25_retriever,
         bm25_chunk_ids=state.bm25_chunk_ids,
     )
     verdict = _crag_verdict(chunks)
-    context = build_context(chunks)
-    user_message = f"Trechos relevantes da legislação:\n\n{context}\n\nPergunta: {question}"
+    user_message = build_user_message(build_context(chunks), question)
 
-    stream = state.groq_client.chat.completions.create(
+    stream = groq_client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -164,8 +163,14 @@ def _stream_events(question: str, state: AppState) -> Iterator[str]:
     yield _sse("done", {"latency_ms": latency_ms})
 
 
-def _build_stream(question: str, state: AppState) -> StreamingResponse:
+def _build_stream(
+    question: str,
+    state: AppState,
+    openai_client: OpenAI,
+    groq_client: Groq,
+    qdrant_client: QdrantClient,
+) -> StreamingResponse:
     return StreamingResponse(
-        _stream_events(question, state),
+        _stream_events(question, state, openai_client, groq_client, qdrant_client),
         media_type="text/event-stream",
     )

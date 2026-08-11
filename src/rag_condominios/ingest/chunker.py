@@ -4,9 +4,9 @@ import re
 
 import tiktoken
 
+from rag_condominios.core.config import TIKTOKEN_ENCODING
 from rag_condominios.core.models import ArticleChunk
 
-TIKTOKEN_ENCODING = "cl100k_base"
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP = 77
 

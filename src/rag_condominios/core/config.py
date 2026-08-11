@@ -2,6 +2,17 @@
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# ---------------------------------------------------------------------------
+# Module-level constants — single source of truth for the whole pipeline.
+# Importing from here prevents silent mismatches between indexing and search.
+# ---------------------------------------------------------------------------
+
+COLLECTION_NAME = "condominio_docs"
+TIKTOKEN_ENCODING = "cl100k_base"
+EMBEDDING_MODEL = "text-embedding-3-small"
+TOP_K_DEFAULT = 20
+RRF_K = 60
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

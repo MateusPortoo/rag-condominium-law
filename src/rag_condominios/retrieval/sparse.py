@@ -6,7 +6,7 @@ from typing import Any
 
 import bm25s  # type: ignore[import-untyped]
 
-TOP_K = 20
+from rag_condominios.core.config import TOP_K_DEFAULT
 
 
 def load_index(index_path: str | Path) -> tuple[Any, list[str]]:
@@ -20,7 +20,7 @@ def search_sparse(
     query: str,
     retriever: Any,
     chunk_ids: list[str],
-    top_k: int = TOP_K,
+    top_k: int = TOP_K_DEFAULT,
 ) -> list[tuple[str, float]]:
     """Return (chunk_id, score) pairs sorted by BM25 relevance."""
     tokenized = bm25s.tokenize(query)
