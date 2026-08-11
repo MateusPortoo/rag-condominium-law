@@ -4,7 +4,7 @@ from fastapi import APIRouter, Request
 
 from rag_condominios.api.schemas import HealthResponse
 from rag_condominios.api.state import AppState
-from rag_condominios.ingest.indexer import COLLECTION_NAME
+from rag_condominios.core.config import COLLECTION_NAME
 
 router = APIRouter()
 
