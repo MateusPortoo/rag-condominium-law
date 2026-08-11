@@ -1,8 +1,10 @@
-"""Hybrid retrieval pipeline: dense + sparse + RRF fusion."""
+"""Hybrid retrieval pipeline: dense + sparse + RRF fusion + reranking."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from openai import OpenAI
 from qdrant_client import QdrantClient
@@ -12,6 +14,10 @@ from rag_condominios.core.protocols import BM25Retriever
 from rag_condominios.retrieval.dense import embed_query, search_dense
 from rag_condominios.retrieval.fusion import reciprocal_rank_fusion
 from rag_condominios.retrieval.sparse import search_sparse
+
+if TYPE_CHECKING:
+    from rag_condominios.retrieval.crag import CRAGEvaluator
+    from rag_condominios.retrieval.reranker import MsMarcoReranker, RankedResult
 
 DEFAULT_BM25_PATH = Path("data/bm25_index.pkl")
 
@@ -71,3 +77,24 @@ def retrieve(
             )
         )
     return results
+
+
+def rerank_and_evaluate(
+    query: str,
+    results: list[RetrievalResult],
+    reranker: MsMarcoReranker | None = None,
+    evaluator: CRAGEvaluator | None = None,
+) -> tuple[list[RankedResult], Literal["correct", "ambiguous", "incorrect"]]:
+    """Rerank retrieved results and return a CRAG verdict.
+
+    Open for extension: inject custom reranker/evaluator without modifying
+    this function — the pipeline depends on the Protocol, not the concrete class.
+    """
+    from rag_condominios.retrieval.crag import CRAGEvaluator as _CRAGEvaluator
+    from rag_condominios.retrieval.reranker import MsMarcoReranker as _MsMarcoReranker
+
+    _reranker = reranker or _MsMarcoReranker()
+    _evaluator = evaluator or _CRAGEvaluator()
+    ranked = _reranker.rerank(query, results)
+    verdict = _evaluator.evaluate(ranked)
+    return ranked, verdict

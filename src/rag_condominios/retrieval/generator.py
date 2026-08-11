@@ -1,8 +1,8 @@
 """Simple generation: query + retrieved context → answer via Groq."""
 
-from groq import Groq
+from typing import Protocol
 
-from rag_condominios.retrieval.pipeline import RetrievalResult
+from groq import Groq
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_CONTEXT_CHUNKS = 5
@@ -12,7 +12,16 @@ Se a resposta não puder ser encontrada nos trechos, diga isso claramente.
 Não invente informações. Seja direto e cite o artigo quando possível."""
 
 
-def build_context(chunks: list[RetrievalResult]) -> str:
+class _Chunk(Protocol):
+    """Minimal interface required by build_context — satisfied by both
+    RetrievalResult and RankedResult without explicit inheritance."""
+
+    text: str
+    lei: str
+    artigo: str
+
+
+def build_context(chunks: list[_Chunk]) -> str:
     """Format retrieved chunks into a context string for the prompt."""
     parts: list[str] = []
     for i, chunk in enumerate(chunks[:MAX_CONTEXT_CHUNKS], start=1):
@@ -28,7 +37,7 @@ def build_user_message(context: str, query: str) -> str:
 
 def generate(
     query: str,
-    chunks: list[RetrievalResult],
+    chunks: list[_Chunk],
     groq_client: Groq,
 ) -> str:
     """Generate an answer given a query and retrieved context chunks."""

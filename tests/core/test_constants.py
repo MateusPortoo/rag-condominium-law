@@ -7,7 +7,10 @@ causing zero results silently. All modules must import the same value.
 
 from rag_condominios.core.config import (
     COLLECTION_NAME,
+    CRAG_AMBIGUOUS_THRESHOLD,
+    CRAG_CORRECT_THRESHOLD,
     EMBEDDING_MODEL,
+    RERANKER_MODEL,
     RRF_K,
     TIKTOKEN_ENCODING,
     TOP_K_DEFAULT,
@@ -53,3 +56,16 @@ def test_tiktoken_encoding_defined() -> None:
 
 def test_collection_name_value() -> None:
     assert COLLECTION_NAME == "condominio_docs"
+
+
+def test_crag_thresholds_defined() -> None:
+    assert CRAG_CORRECT_THRESHOLD == 0.75
+    assert CRAG_AMBIGUOUS_THRESHOLD == 0.70
+
+
+def test_correct_threshold_greater_than_ambiguous() -> None:
+    assert CRAG_CORRECT_THRESHOLD > CRAG_AMBIGUOUS_THRESHOLD
+
+
+def test_reranker_model_defined() -> None:
+    assert RERANKER_MODEL == "cross-encoder/ms-marco-MiniLM-L-6-v2"

@@ -3,7 +3,6 @@
 import json
 import time
 from collections.abc import Iterator
-from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -27,20 +26,16 @@ from rag_condominios.retrieval.generator import (
     build_user_message,
     generate,
 )
-from rag_condominios.retrieval.pipeline import RetrievalResult, retrieve
+from rag_condominios.retrieval.pipeline import rerank_and_evaluate, retrieve
+from rag_condominios.retrieval.reranker import RankedResult
 
 router = APIRouter()
 
 
-def _crag_verdict(chunks: list[RetrievalResult]) -> Literal["correct", "ambiguous", "incorrect"]:
-    # Phase 1 placeholder — cross-encoder CRAG arrives in Phase 2 (DC-01).
-    return "correct" if chunks else "incorrect"
-
-
-def _sources(chunks: list[RetrievalResult]) -> list[SourceItem]:
+def _sources(ranked: list[RankedResult]) -> list[SourceItem]:
     return [
-        SourceItem(chunk=c.text, score=round(c.rrf_score, 4), artigo=c.artigo)
-        for c in chunks[:5]
+        SourceItem(chunk=r.text, score=round(r.rerank_score, 4), artigo=r.artigo)
+        for r in ranked[:5]
     ]
 
 
@@ -73,15 +68,15 @@ def _sync_answer(
     qdrant_client: QdrantClient,
 ) -> QueryResponse:
     t0 = time.monotonic()
-    chunks = retrieve(
+    results = retrieve(
         query=question,
         openai_client=openai_client,
         qdrant_client=qdrant_client,
         bm25_retriever=state.bm25_retriever,
         bm25_chunk_ids=state.bm25_chunk_ids,
     )
-    answer = generate(question, chunks, groq_client)
-    verdict = _crag_verdict(chunks)
+    ranked, verdict = rerank_and_evaluate(question, results)
+    answer = generate(question, ranked, groq_client)
     latency_ms = int((time.monotonic() - t0) * 1000)
 
     state.record_query(
@@ -97,7 +92,7 @@ def _sync_answer(
     return QueryResponse(
         answer=answer,
         crag_verdict=verdict,
-        sources=_sources(chunks),
+        sources=_sources(ranked),
         model_used=GROQ_MODEL,
         cached=False,
         web_search_timeout=False,
@@ -123,15 +118,16 @@ def _stream_events(
     t0 = time.monotonic()
     yield _sse("status", {"message": "recuperando documentos..."})
 
-    chunks = retrieve(
+    results = retrieve(
         query=question,
         openai_client=openai_client,
         qdrant_client=qdrant_client,
         bm25_retriever=state.bm25_retriever,
         bm25_chunk_ids=state.bm25_chunk_ids,
     )
-    verdict = _crag_verdict(chunks)
-    user_message = build_user_message(build_context(chunks), question)
+    yield _sse("status", {"message": "reranqueando documentos..."})
+    ranked, verdict = rerank_and_evaluate(question, results)
+    user_message = build_user_message(build_context(ranked), question)
 
     stream = groq_client.chat.completions.create(
         model=GROQ_MODEL,
@@ -155,8 +151,8 @@ def _stream_events(
     })
     yield _sse("sources", {
         "chunks": [
-            {"text": c.text, "score": round(c.rrf_score, 4), "artigo": c.artigo}
-            for c in chunks[:5]
+            {"text": r.text, "score": round(r.rerank_score, 4), "artigo": r.artigo}
+            for r in ranked[:5]
         ]
     })
     latency_ms = int((time.monotonic() - t0) * 1000)
