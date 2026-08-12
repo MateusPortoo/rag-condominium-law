@@ -11,5 +11,5 @@ router = APIRouter()
 @router.get("/metrics", response_model=MetricsResponse)
 def metrics(request: Request, last: int = Query(default=20, ge=1, le=100)) -> MetricsResponse:
     state: AppState = request.app.state.rag
-    recent = state.recent_queries[-last:]
-    return MetricsResponse(recent_queries=list(recent), total_count=len(state.recent_queries))
+    all_queries = list(state.recent_queries)
+    return MetricsResponse(recent_queries=all_queries[-last:], total_count=len(all_queries))

@@ -5,12 +5,15 @@ the BaseReranker Protocol. Swap for BgeReranker in DC-01 by implementing
 the same Protocol and injecting at the call site — no pipeline changes.
 """
 
+import logging
 from dataclasses import dataclass
 
 from sentence_transformers import CrossEncoder
 
 from rag_condominios.core.config import RERANKER_MODEL
 from rag_condominios.retrieval.pipeline import RetrievalResult
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,7 +44,21 @@ class MsMarcoReranker:
             return []
 
         pairs = [(query, r.text) for r in results]
-        raw_scores: list[float] = self._model.predict(pairs).tolist()  # type: ignore[arg-type]
+        try:
+            raw_scores: list[float] = self._model.predict(pairs).tolist()  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — OOM/CUDA/shape errors degrade to rrf_score
+            _log.error("CrossEncoder.predict failed (n_pairs=%d): %s", len(pairs), exc)
+            return [
+                RankedResult(
+                    chunk_id=r.chunk_id,
+                    rrf_score=r.rrf_score,
+                    rerank_score=r.rrf_score,
+                    text=r.text,
+                    lei=r.lei,
+                    artigo=r.artigo,
+                )
+                for r in results
+            ]
 
         ranked = [
             RankedResult(

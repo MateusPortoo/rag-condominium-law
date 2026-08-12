@@ -20,6 +20,9 @@ RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 CRAG_CORRECT_THRESHOLD = 0.75
 CRAG_AMBIGUOUS_THRESHOLD = 0.70
 
+# Semantic cache — see SPEC section 8
+SEMANTIC_CACHE_COLLECTION = "query_cache"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

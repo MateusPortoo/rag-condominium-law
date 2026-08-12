@@ -1,9 +1,16 @@
-"""Simple generation: query + retrieved context → answer via Groq."""
+"""Simple generation: query + retrieved context → answer via any LLMClient."""
 
+from __future__ import annotations
+
+import logging
 from collections.abc import Iterator, Sequence
-from typing import Protocol
+from typing import Any, Protocol
 
+from groq import APIError as GroqAPIError
 from groq import Groq
+from openai import OpenAIError
+
+_log = logging.getLogger(__name__)
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_CONTEXT_CHUNKS = 5
@@ -20,6 +27,15 @@ class _Chunk(Protocol):
     text: str
     lei: str
     artigo: str
+
+
+class _LLMClient(Protocol):
+    """Minimal interface satisfied by groq.Groq and openai.OpenAI."""
+
+    @property
+    def chat(self) -> Any:
+        """Access to chat.completions.create(...)."""
+        ...
 
 
 def build_context(chunks: Sequence[_Chunk]) -> str:
@@ -39,42 +55,65 @@ def build_user_message(context: str, query: str) -> str:
 def generate(
     query: str,
     chunks: Sequence[_Chunk],
-    groq_client: Groq,
+    llm_client: _LLMClient,
+    model: str = GROQ_MODEL,
 ) -> str:
-    """Generate an answer given a query and retrieved context chunks."""
+    """Generate an answer given a query and retrieved context chunks.
+
+    Accepts any client satisfying _LLMClient (Groq or OpenAI).
+    """
     context = build_context(chunks)
     user_message = build_user_message(context, query)
 
-    response = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0,
-    )
-    return response.choices[0].message.content or ""
+    n_chunks = len(chunks)
+    try:
+        response = llm_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0,
+        )
+    except (GroqAPIError, OpenAIError) as exc:
+        _log.error("LLM generation failed (model=%s, n_chunks=%d): %s", model, n_chunks, exc)
+        raise
+    content: str | None = response.choices[0].message.content if response.choices else None
+    if not content:
+        _log.warning("LLM returned empty content (model=%s)", model)
+        return ""
+    return content
 
 
 def generate_stream(
     query: str,
     chunks: Sequence[_Chunk],
     groq_client: Groq,
+    model: str = GROQ_MODEL,
 ) -> Iterator[str]:
-    """Stream token-by-token generation; yields non-empty content strings."""
+    """Stream token-by-token generation; yields non-empty content strings.
+
+    Streaming is only used on the fast Groq path (simple queries).
+    """
     context = build_context(chunks)
     user_message = build_user_message(context, query)
 
-    stream = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0,
-        stream=True,
-    )
-    for delta in stream:
-        content = delta.choices[0].delta.content or ""
-        if content:
-            yield content
+    try:
+        stream = groq_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0,
+            stream=True,
+        )
+        for delta in stream:
+            if not delta.choices:
+                continue
+            content = delta.choices[0].delta.content or ""
+            if content:
+                yield content
+    except GroqAPIError as exc:
+        _log.error("stream generation failed: %s", exc)
+        raise

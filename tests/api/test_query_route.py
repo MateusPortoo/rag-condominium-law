@@ -9,6 +9,8 @@ from rag_condominios.api.state import AppState
 from rag_condominios.retrieval.pipeline import RetrievalResult
 from rag_condominios.retrieval.reranker import RankedResult
 
+_FAKE_EMBEDDING = [0.1] * 1536
+
 
 def _ready_state() -> AppState:
     return AppState(
@@ -31,6 +33,13 @@ def _ranked(chunk: RetrievalResult, score: float = 0.85) -> RankedResult:
     )
 
 
+def _no_cache() -> MagicMock:
+    """Return a QdrantSemanticCache mock that always misses."""
+    mock = MagicMock()
+    mock.return_value.lookup.return_value = None
+    return mock
+
+
 def test_query_blocks_injection() -> None:
     app = create_app()
     with TestClient(app) as client:
@@ -41,7 +50,6 @@ def test_query_blocks_injection() -> None:
 def test_query_503_when_uninitialized() -> None:
     app = create_app()
     with TestClient(app) as client:
-        # lifespan sets all-None state (no env keys configured in tests)
         resp = client.post("/query", json={"question": "Qual o prazo para assembléia?"})
     assert resp.status_code == 503
 
@@ -58,10 +66,19 @@ def test_query_returns_answer_with_mocked_pipeline() -> None:
 
     app = create_app()
     with (
-        patch("rag_condominios.api.routes.query.retrieve", return_value=[fake_chunk]),
+        patch("rag_condominios.retrieval.dense.embed_query", return_value=_FAKE_EMBEDDING),
+        patch("rag_condominios.api.routes.query.QdrantSemanticCache", _no_cache()),
+        patch(
+            "rag_condominios.api.routes.query._retrieve_with_transforms",
+            return_value=[fake_chunk],
+        ),
         patch(
             "rag_condominios.api.routes.query.rerank_and_evaluate",
             return_value=(fake_ranked, "correct"),
+        ),
+        patch(
+            "rag_condominios.api.routes.query.decompose_recompose",
+            return_value=fake_ranked,
         ),
         patch("rag_condominios.api.routes.query.generate", return_value="Resposta gerada."),
         TestClient(app) as client,
@@ -83,10 +100,19 @@ def test_query_returns_answer_with_mocked_pipeline() -> None:
 def test_query_returns_incorrect_when_no_chunks() -> None:
     app = create_app()
     with (
-        patch("rag_condominios.api.routes.query.retrieve", return_value=[]),
+        patch("rag_condominios.retrieval.dense.embed_query", return_value=_FAKE_EMBEDDING),
+        patch("rag_condominios.api.routes.query.QdrantSemanticCache", _no_cache()),
+        patch(
+            "rag_condominios.api.routes.query._retrieve_with_transforms",
+            return_value=[],
+        ),
         patch(
             "rag_condominios.api.routes.query.rerank_and_evaluate",
             return_value=([], "incorrect"),
+        ),
+        patch(
+            "rag_condominios.api.routes.query.web_search",
+            return_value=([], True),
         ),
         patch("rag_condominios.api.routes.query.generate", return_value="Não encontrado."),
         TestClient(app) as client,
