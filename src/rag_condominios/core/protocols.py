@@ -8,7 +8,7 @@ Adding a new retriever or LLM provider means implementing these protocols,
 not modifying the pipeline internals — Open/Closed in practice.
 """
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -35,4 +35,31 @@ class LLMClient(Protocol):
     @property
     def chat(self) -> Any:
         """Access to chat.completions.create(...)."""
+        ...
+
+
+@runtime_checkable
+class BaseReranker(Protocol):
+    """Structural interface for cross-encoder rerankers.
+
+    Implementations receive (query, results) and return results sorted by
+    rerank_score descending. Satisfying this Protocol enables DC-01:
+    swap ms-marco for bge-reranker without touching the pipeline.
+    """
+
+    def rerank(self, query: str, results: list[Any]) -> list[Any]:
+        """Score and sort results by relevance to query."""
+        ...
+
+
+@runtime_checkable
+class BaseCRAGEvaluator(Protocol):
+    """Structural interface for CRAG verdict evaluators.
+
+    Decouples threshold logic from the pipeline — evaluator can be
+    swapped or mocked in tests without modifying query.py.
+    """
+
+    def evaluate(self, ranked: list[Any]) -> Literal["correct", "ambiguous", "incorrect"]:
+        """Return CRAG verdict based on rerank scores."""
         ...

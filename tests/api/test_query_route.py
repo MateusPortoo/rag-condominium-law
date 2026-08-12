@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from rag_condominios.api.app import create_app
 from rag_condominios.api.state import AppState
 from rag_condominios.retrieval.pipeline import RetrievalResult
+from rag_condominios.retrieval.reranker import RankedResult
 
 
 def _ready_state() -> AppState:
@@ -16,6 +17,17 @@ def _ready_state() -> AppState:
         qdrant_client=MagicMock(),
         bm25_retriever=MagicMock(),
         bm25_chunk_ids=["chunk-001"],
+    )
+
+
+def _ranked(chunk: RetrievalResult, score: float = 0.85) -> RankedResult:
+    return RankedResult(
+        chunk_id=chunk.chunk_id,
+        rrf_score=chunk.rrf_score,
+        rerank_score=score,
+        text=chunk.text,
+        lei=chunk.lei,
+        artigo=chunk.artigo,
     )
 
 
@@ -42,9 +54,15 @@ def test_query_returns_answer_with_mocked_pipeline() -> None:
         lei="CC",
         artigo="Art. 1.350",
     )
+    fake_ranked = [_ranked(fake_chunk, score=0.85)]
+
     app = create_app()
     with (
         patch("rag_condominios.api.routes.query.retrieve", return_value=[fake_chunk]),
+        patch(
+            "rag_condominios.api.routes.query.rerank_and_evaluate",
+            return_value=(fake_ranked, "correct"),
+        ),
         patch("rag_condominios.api.routes.query.generate", return_value="Resposta gerada."),
         TestClient(app) as client,
     ):
@@ -59,12 +77,17 @@ def test_query_returns_answer_with_mocked_pipeline() -> None:
     assert body["latency_ms"] >= 0
     assert len(body["sources"]) == 1
     assert body["sources"][0]["artigo"] == "Art. 1.350"
+    assert body["sources"][0]["score"] == 0.85
 
 
 def test_query_returns_incorrect_when_no_chunks() -> None:
     app = create_app()
     with (
         patch("rag_condominios.api.routes.query.retrieve", return_value=[]),
+        patch(
+            "rag_condominios.api.routes.query.rerank_and_evaluate",
+            return_value=([], "incorrect"),
+        ),
         patch("rag_condominios.api.routes.query.generate", return_value="Não encontrado."),
         TestClient(app) as client,
     ):
