@@ -1,5 +1,6 @@
 """Simple generation: query + retrieved context → answer via Groq."""
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from groq import Groq
@@ -21,7 +22,7 @@ class _Chunk(Protocol):
     artigo: str
 
 
-def build_context(chunks: list[_Chunk]) -> str:
+def build_context(chunks: Sequence[_Chunk]) -> str:
     """Format retrieved chunks into a context string for the prompt."""
     parts: list[str] = []
     for i, chunk in enumerate(chunks[:MAX_CONTEXT_CHUNKS], start=1):
@@ -37,7 +38,7 @@ def build_user_message(context: str, query: str) -> str:
 
 def generate(
     query: str,
-    chunks: list[_Chunk],
+    chunks: Sequence[_Chunk],
     groq_client: Groq,
 ) -> str:
     """Generate an answer given a query and retrieved context chunks."""

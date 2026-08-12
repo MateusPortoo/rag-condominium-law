@@ -7,7 +7,7 @@ the same Protocol and injecting at the call site — no pipeline changes.
 
 from dataclasses import dataclass
 
-from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
+from sentence_transformers import CrossEncoder
 
 from rag_condominios.core.config import RERANKER_MODEL
 from rag_condominios.retrieval.pipeline import RetrievalResult
@@ -41,7 +41,7 @@ class MsMarcoReranker:
             return []
 
         pairs = [(query, r.text) for r in results]
-        raw_scores: list[float] = self._model.predict(pairs).tolist()
+        raw_scores: list[float] = self._model.predict(pairs).tolist()  # type: ignore[arg-type]
 
         ranked = [
             RankedResult(
