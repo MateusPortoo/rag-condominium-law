@@ -109,8 +109,12 @@ def _rewrite_for_web(query: str, groq_client: Groq) -> str:
     return response.choices[0].message.content or query
 
 
-def _ddgo_snippets(search_query: str, domain: str) -> list[str]:
-    """Fetch DuckDuckGo instant-answer snippets for a single domain."""
+def _ddgo_snippets(search_query: str, domain: str) -> list[str] | None:
+    """Fetch DuckDuckGo snippets for one domain.
+
+    Returns None on network/parse failure (signals timed_out to caller),
+    or a list (possibly empty) on a successful response.
+    """
     params = {
         "q": f"site:{domain} {search_query}",
         "format": "json",
@@ -122,7 +126,7 @@ def _ddgo_snippets(search_query: str, domain: str) -> list[str]:
         data = resp.json()
     except (requests.exceptions.RequestException, ValueError) as exc:
         _log.warning("DuckDuckGo fetch failed for domain %s: %s", domain, exc)
-        return []
+        return None
 
     snippets: list[str] = []
     abstract = data.get("AbstractText", "")
@@ -142,21 +146,29 @@ def web_search(
 ) -> tuple[list[_WebChunk], bool]:
     """Search allowed domains and return text snippets.
 
-    Returns (snippets, timed_out). On network failure or timeout the list
-    is empty and timed_out is True.
+    Returns (chunks, timed_out).
+    timed_out=True only on network/API failure, not on empty results.
     """
     try:
         search_query = _rewrite_for_web(query, groq_client)
     except GroqAPIError as exc:
-        _log.warning("Groq query rewrite failed: %s", exc)
-        return [], True
+        _log.warning("Groq query rewrite failed, falling back to original query: %s", exc)
+        search_query = query
 
     all_snippets: list[str] = []
+    any_network_failure = False
     for domain in allowed_domains:
-        all_snippets.extend(_ddgo_snippets(search_query, domain))
+        result = _ddgo_snippets(search_query, domain)
+        if result is None:
+            any_network_failure = True
+        else:
+            all_snippets.extend(result)
 
     if not all_snippets:
-        return [], True
+        if any_network_failure:
+            return [], True
+        _log.info("web search returned no snippets for query=%r", search_query)
+        return [], False
 
     chunks = [_WebChunk(text=s) for s in all_snippets]
     return chunks, False
@@ -178,8 +190,17 @@ def ambiguous_action(
         future_recompose = executor.submit(decompose_recompose, query, ranked, reranker)
         future_web = executor.submit(web_search, query, groq_client, allowed_domains)
 
-        recomposed = future_recompose.result()
-        web_chunks, timed_out = future_web.result()
+        try:
+            recomposed = future_recompose.result()
+        except Exception as exc:  # noqa: BLE001 — reranker failure falls back to original ranked
+            _log.error("decompose_recompose failed in ambiguous_action: %s", exc)
+            recomposed = list(ranked)
+
+        try:
+            web_chunks, timed_out = future_web.result()
+        except Exception as exc:  # noqa: BLE001 — web search future failure treated as timeout
+            _log.error("web_search future failed in ambiguous_action: %s", exc)
+            web_chunks, timed_out = [], True
 
     merged: list[RankedResult | _WebChunk] = list(recomposed)
     if not timed_out:

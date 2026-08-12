@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
+
+_log = logging.getLogger(__name__)
 
 from openai import OpenAI
 from qdrant_client import QdrantClient
@@ -67,7 +70,10 @@ def retrieve(
 
     results: list[RetrievalResult] = []
     for chunk_id, rrf_score in fused:
-        payload = payload_by_id.get(chunk_id, {})
+        payload = payload_by_id.get(chunk_id)
+        if payload is None:
+            _log.warning("No Qdrant payload for chunk_id=%s (BM25-only hit) — text will be empty", chunk_id)
+            payload = {}
         results.append(
             RetrievalResult(
                 chunk_id=chunk_id,

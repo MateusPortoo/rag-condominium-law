@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator, Sequence
 from typing import Any, Protocol
 
+from groq import APIError as GroqAPIError
 from groq import Groq
+
+_log = logging.getLogger(__name__)
 
 GROQ_MODEL = "llama-3.3-70b-versatile"
 MAX_CONTEXT_CHUNKS = 5
@@ -68,7 +72,11 @@ def generate(
         ],
         temperature=0,
     )
-    return response.choices[0].message.content or ""
+    content = response.choices[0].message.content if response.choices else None
+    if not content:
+        _log.warning("LLM returned empty content (model=%s)", model)
+        return ""
+    return content
 
 
 def generate_stream(
@@ -84,16 +92,22 @@ def generate_stream(
     context = build_context(chunks)
     user_message = build_user_message(context, query)
 
-    stream = groq_client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0,
-        stream=True,
-    )
-    for delta in stream:
-        content = delta.choices[0].delta.content or ""
-        if content:
-            yield content
+    try:
+        stream = groq_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0,
+            stream=True,
+        )
+        for delta in stream:
+            if not delta.choices:
+                continue
+            content = delta.choices[0].delta.content or ""
+            if content:
+                yield content
+    except GroqAPIError as exc:
+        _log.error("stream generation failed: %s", exc)
+        raise

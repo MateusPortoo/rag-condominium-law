@@ -139,20 +139,25 @@ def test_web_search_returns_timed_out_on_network_error(mock_get: MagicMock) -> N
 
 
 @patch("rag_condominios.retrieval.crag_actions.requests.get")
-def test_web_search_timed_out_when_groq_fails(mock_get: MagicMock) -> None:
+def test_web_search_falls_back_to_original_query_when_groq_fails(mock_get: MagicMock) -> None:
+    # Groq rewrite fails → fallback to original query → search runs and returns empty
     groq_client = MagicMock()
     groq_client.chat.completions.create.side_effect = GroqAPIError(
         "groq error", MagicMock(), body=None
     )
+    mock_get.return_value.json.return_value = {"AbstractText": "", "RelatedTopics": []}
+    mock_get.return_value.raise_for_status.return_value = None
 
     chunks, timed_out = web_search("query", groq_client, ["planalto.gov.br"])
 
-    assert timed_out
+    # Groq failure does not propagate as timed_out; search completes with no results
+    assert not timed_out
     assert chunks == []
 
 
 @patch("rag_condominios.retrieval.crag_actions.requests.get")
-def test_web_search_timed_out_when_no_snippets(mock_get: MagicMock) -> None:
+def test_web_search_returns_empty_not_timed_out_when_no_snippets(mock_get: MagicMock) -> None:
+    # Search succeeds but DuckDuckGo finds nothing → timed_out=False (not a network failure)
     groq = MagicMock()
     groq.chat.completions.create.return_value = _groq_response("rewritten")
     mock_get.return_value.json.return_value = {"AbstractText": "", "RelatedTopics": []}
@@ -160,7 +165,7 @@ def test_web_search_timed_out_when_no_snippets(mock_get: MagicMock) -> None:
 
     chunks, timed_out = web_search("query", groq, ["planalto.gov.br"])
 
-    assert timed_out
+    assert not timed_out
     assert chunks == []
 
 

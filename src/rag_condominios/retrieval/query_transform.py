@@ -9,11 +9,14 @@ Both run in parallel via ThreadPoolExecutor (Groq calls are synchronous).
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from groq import Groq
     from openai import OpenAI
+
+_log = logging.getLogger(__name__)
 
 
 _HYDE_SYSTEM = (
@@ -43,7 +46,11 @@ def _hyde_text(query: str, groq_client: Groq) -> str:
         ],
         temperature=0,
     )
-    return response.choices[0].message.content or query
+    content = response.choices[0].message.content if response.choices else None
+    if not content:
+        _log.warning("HyDE: Groq returned empty content, using original query")
+        return query
+    return content
 
 
 def _multi_query_texts(query: str, groq_client: Groq) -> list[str]:
@@ -56,7 +63,10 @@ def _multi_query_texts(query: str, groq_client: Groq) -> list[str]:
         ],
         temperature=0.3,
     )
-    raw = response.choices[0].message.content or ""
+    raw = response.choices[0].message.content if response.choices else None
+    if not raw:
+        _log.warning("multi-query: Groq returned empty content, using original query")
+        return [query]
     lines = [
         line.lstrip("123456789. ").strip()
         for line in raw.splitlines()
@@ -104,7 +114,16 @@ def transform_parallel(
         )
         future_multi = executor.submit(generate_multi_queries, query, groq_client)
 
-        hyde_embedding: list[float] = future_hyde.result()
-        alt_queries: list[str] = future_multi.result()
+        try:
+            hyde_embedding: list[float] = future_hyde.result()
+        except Exception as exc:  # noqa: BLE001 — any LLM/network failure → empty vector
+            _log.warning("HyDE embedding failed, skipping: %s", exc)
+            hyde_embedding = []
+
+        try:
+            alt_queries: list[str] = future_multi.result()
+        except Exception as exc:  # noqa: BLE001 — any LLM/network failure → original query
+            _log.warning("multi-query generation failed, using original: %s", exc)
+            alt_queries = [query]
 
     return hyde_embedding, alt_queries

@@ -6,11 +6,16 @@ questions are served instantly without re-running the full pipeline.
 
 from __future__ import annotations
 
+import logging
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
+
+_log = logging.getLogger(__name__)
+_VALID_VERDICTS = frozenset({"correct", "ambiguous", "incorrect"})
 
 from rag_condominios.core.config import SEMANTIC_CACHE_COLLECTION
 
@@ -65,17 +70,24 @@ class QdrantSemanticCache:
             return None
 
         payload = hit.payload or {}
+        answer = payload.get("answer", "")
+        verdict = payload.get("crag_verdict", "")
+        if not answer or verdict not in _VALID_VERDICTS:
+            _log.warning(
+                "Malformed cache entry (answer=%r, verdict=%r) — discarding",
+                answer[:30] if answer else "",
+                verdict,
+            )
+            return None
         return CachedResponse(
             question=payload.get("question", ""),
-            answer=payload.get("answer", ""),
-            crag_verdict=payload.get("crag_verdict", "correct"),
+            answer=answer,
+            crag_verdict=verdict,
             sources=payload.get("sources", []),
         )
 
     def store(self, query_embedding: list[float], response: CachedResponse) -> None:
         """Insert the response into the cache collection."""
-        import uuid
-
         point = PointStruct(
             id=str(uuid.uuid4()),
             vector=query_embedding,

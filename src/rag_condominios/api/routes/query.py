@@ -117,7 +117,10 @@ def _retrieve_with_transforms(
 
     results: list[RetrievalResult] = []
     for chunk_id, rrf_score in final_fused:
-        payload = payload_by_id.get(chunk_id, {})
+        payload = payload_by_id.get(chunk_id)
+        if payload is None:
+            _log.warning("No payload for chunk_id=%s (BM25-only hit) — text will be empty", chunk_id)
+            payload = {}
         results.append(
             RetrievalResult(
                 chunk_id=chunk_id,
@@ -384,9 +387,14 @@ def _stream_events(
     # 5. Stream generation (only with Groq; OpenAI path falls back to non-stream)
     full_answer_parts: list[str] = []
     if llm_client is groq_client:
-        for token in generate_stream(question, final_chunks, groq_client, model_name):
-            full_answer_parts.append(token)
-            yield _sse("token", {"content": token})
+        try:
+            for token in generate_stream(question, final_chunks, groq_client, model_name):
+                full_answer_parts.append(token)
+                yield _sse("token", {"content": token})
+        except GroqAPIError as exc:
+            _log.error("stream generation failed mid-response: %s", exc)
+            yield _sse("error", {"message": "Falha na geração da resposta."})
+            return
     else:
         answer = generate(question, final_chunks, llm_client, model_name)
         full_answer_parts.append(answer)
