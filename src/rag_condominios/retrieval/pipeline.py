@@ -16,8 +16,9 @@ from rag_condominios.retrieval.fusion import reciprocal_rank_fusion
 from rag_condominios.retrieval.sparse import search_sparse
 
 if TYPE_CHECKING:
-    from rag_condominios.retrieval.crag import CRAGEvaluator
-    from rag_condominios.retrieval.reranker import MsMarcoReranker, RankedResult
+    from rag_condominios.retrieval.reranker import RankedResult
+
+from rag_condominios.core.protocols import BaseCRAGEvaluator, BaseReranker
 
 DEFAULT_BM25_PATH = Path("data/bm25_index.pkl")
 
@@ -82,19 +83,22 @@ def retrieve(
 def rerank_and_evaluate(
     query: str,
     results: list[RetrievalResult],
-    reranker: MsMarcoReranker | None = None,
-    evaluator: CRAGEvaluator | None = None,
+    reranker: BaseReranker | None = None,
+    evaluator: BaseCRAGEvaluator | None = None,
 ) -> tuple[list[RankedResult], Literal["correct", "ambiguous", "incorrect"]]:
     """Rerank retrieved results and return a CRAG verdict.
 
-    Open for extension: inject custom reranker/evaluator without modifying
-    this function — the pipeline depends on the Protocol, not the concrete class.
+    Open for extension: inject any BaseReranker/BaseCRAGEvaluator implementation
+    without modifying this function — Dependency Inversion via Protocol.
     """
+    from typing import cast
+
     from rag_condominios.retrieval.crag import CRAGEvaluator as _CRAGEvaluator
     from rag_condominios.retrieval.reranker import MsMarcoReranker as _MsMarcoReranker
+    from rag_condominios.retrieval.reranker import RankedResult as _RankedResult
 
-    _reranker = reranker or _MsMarcoReranker()
-    _evaluator = evaluator or _CRAGEvaluator()
-    ranked = _reranker.rerank(query, results)
+    _reranker: BaseReranker = reranker or _MsMarcoReranker()
+    _evaluator: BaseCRAGEvaluator = evaluator or _CRAGEvaluator()
+    ranked = cast(list[_RankedResult], _reranker.rerank(query, results))
     verdict = _evaluator.evaluate(ranked)
     return ranked, verdict
