@@ -1,6 +1,6 @@
 """Simple generation: query + retrieved context → answer via Groq."""
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from typing import Protocol
 
 from groq import Groq
@@ -54,3 +54,27 @@ def generate(
         temperature=0,
     )
     return response.choices[0].message.content or ""
+
+
+def generate_stream(
+    query: str,
+    chunks: Sequence[_Chunk],
+    groq_client: Groq,
+) -> Iterator[str]:
+    """Stream token-by-token generation; yields non-empty content strings."""
+    context = build_context(chunks)
+    user_message = build_user_message(context, query)
+
+    stream = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_message},
+        ],
+        temperature=0,
+        stream=True,
+    )
+    for delta in stream:
+        content = delta.choices[0].delta.content or ""
+        if content:
+            yield content

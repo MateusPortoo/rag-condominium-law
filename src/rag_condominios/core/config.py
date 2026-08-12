@@ -30,8 +30,6 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     openai_frontier_model: str = ""
     semantic_cache_threshold: float = 0.95
-    crag_correct_threshold: float = 0.75
-    crag_incorrect_threshold: float = 0.70
     allowed_domains: str = "planalto.gov.br,jusbrasil.com.br,stj.jus.br"
 
     @property

@@ -21,10 +21,8 @@ from rag_condominios.api.security import detect_injection
 from rag_condominios.api.state import AppState
 from rag_condominios.retrieval.generator import (
     GROQ_MODEL,
-    SYSTEM_PROMPT,
-    build_context,
-    build_user_message,
     generate,
+    generate_stream,
 )
 from rag_condominios.retrieval.pipeline import rerank_and_evaluate, retrieve
 from rag_condominios.retrieval.reranker import RankedResult
@@ -127,21 +125,9 @@ def _stream_events(
     )
     yield _sse("status", {"message": "reranqueando documentos..."})
     ranked, verdict = rerank_and_evaluate(question, results)
-    user_message = build_user_message(build_context(ranked), question)
 
-    stream = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0,
-        stream=True,
-    )
-    for delta in stream:
-        content = delta.choices[0].delta.content or ""
-        if content:
-            yield _sse("token", {"content": content})
+    for token in generate_stream(question, ranked, groq_client):
+        yield _sse("token", {"content": token})
 
     yield _sse("metadata", {
         "crag_verdict": verdict,
