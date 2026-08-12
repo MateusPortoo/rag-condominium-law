@@ -94,7 +94,8 @@ def rerank_and_evaluate(
     from typing import cast
 
     from rag_condominios.retrieval.crag import CRAGEvaluator as _CRAGEvaluator
-    from rag_condominios.retrieval.reranker import MsMarcoReranker as _MsMarcoReranker, RankedResult as _RankedResult
+    from rag_condominios.retrieval.reranker import MsMarcoReranker as _MsMarcoReranker
+    from rag_condominios.retrieval.reranker import RankedResult as _RankedResult
 
     _reranker: BaseReranker = reranker or _MsMarcoReranker()
     _evaluator: BaseCRAGEvaluator = evaluator or _CRAGEvaluator()
