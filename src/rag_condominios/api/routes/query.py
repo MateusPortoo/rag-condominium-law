@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import Iterator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from groq import APIError as GroqAPIError
 from groq import Groq
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 from rag_condominios.api.deps import extract_clients
 from rag_condominios.api.schemas import (
@@ -42,6 +45,8 @@ from rag_condominios.retrieval.semantic_cache import (
     QdrantSemanticCache,
     ensure_cache_collection,
 )
+
+_log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -164,7 +169,8 @@ def _sync_answer(
         ensure_cache_collection(qdrant_client)
         cache = QdrantSemanticCache(qdrant_client, settings.semantic_cache_threshold)
         cached = cache.lookup(query_embedding)
-    except Exception:  # noqa: BLE001 — cache miss must never crash the request
+    except (UnexpectedResponse, ResponseHandlingException) as exc:
+        _log.warning("semantic cache unavailable: %s", exc)
         cache = None
         cached = None
 
@@ -194,7 +200,8 @@ def _sync_answer(
             question, state, openai_client, groq_client, qdrant_client
         )
         query_transformed = "hyde+multi"
-    except Exception:  # noqa: BLE001 — LLM/network failure degrades to base retrieval
+    except (GroqAPIError, OpenAIError, UnexpectedResponse, ResponseHandlingException) as exc:
+        _log.warning("query transforms failed, falling back to base retrieval: %s", exc)
         results = retrieve(
             query=question,
             openai_client=openai_client,
@@ -255,8 +262,8 @@ def _sync_answer(
                     sources=sources_dicts,
                 ),
             )
-        except Exception:  # noqa: BLE001, S110 — cache store failure must not crash response
-            pass
+        except (UnexpectedResponse, ResponseHandlingException) as exc:
+            _log.warning("semantic cache store failed: %s", exc)
 
     state.record_query(
         MetricsEntry(
@@ -306,7 +313,8 @@ def _stream_events(
         ensure_cache_collection(qdrant_client)
         cache = QdrantSemanticCache(qdrant_client, settings.semantic_cache_threshold)
         cached = cache.lookup(query_embedding)
-    except Exception:  # noqa: BLE001 — cache miss must never crash the request
+    except (UnexpectedResponse, ResponseHandlingException) as exc:
+        _log.warning("semantic cache unavailable: %s", exc)
         cached = None
 
     if cached is not None:
@@ -329,7 +337,8 @@ def _stream_events(
             question, state, openai_client, groq_client, qdrant_client
         )
         query_transformed = "hyde+multi"
-    except Exception:  # noqa: BLE001 — LLM/network failure degrades to base retrieval
+    except (GroqAPIError, OpenAIError, UnexpectedResponse, ResponseHandlingException) as exc:
+        _log.warning("query transforms failed, falling back to base retrieval: %s", exc)
         results = retrieve(
             query=question,
             openai_client=openai_client,
@@ -398,8 +407,8 @@ def _stream_events(
                     sources=sources_dicts,
                 ),
             )
-        except Exception:  # noqa: BLE001, S110 — cache store failure must not crash response
-            pass
+        except (UnexpectedResponse, ResponseHandlingException) as exc:
+            _log.warning("semantic cache store failed: %s", exc)
 
     yield _sse("metadata", {
         "crag_verdict": verdict,

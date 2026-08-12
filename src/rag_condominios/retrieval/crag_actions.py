@@ -9,10 +9,12 @@ Three actions, each with a single responsibility:
 from __future__ import annotations
 
 import concurrent.futures
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import requests
+from groq import APIError as GroqAPIError
 
 from rag_condominios.core.config import CRAG_AMBIGUOUS_THRESHOLD
 
@@ -21,6 +23,8 @@ if TYPE_CHECKING:
 
     from rag_condominios.core.protocols import BaseReranker
     from rag_condominios.retrieval.reranker import RankedResult
+
+_log = logging.getLogger(__name__)
 
 _WEB_SEARCH_TIMEOUT = 5
 _DDGO_URL = "https://api.duckduckgo.com/"
@@ -116,7 +120,8 @@ def _ddgo_snippets(search_query: str, domain: str) -> list[str]:
         resp = requests.get(_DDGO_URL, params=params, timeout=_WEB_SEARCH_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
-    except Exception:  # noqa: BLE001 — network failure returns empty snippets
+    except (requests.exceptions.RequestException, ValueError) as exc:
+        _log.warning("DuckDuckGo fetch failed for domain %s: %s", domain, exc)
         return []
 
     snippets: list[str] = []
@@ -142,7 +147,8 @@ def web_search(
     """
     try:
         search_query = _rewrite_for_web(query, groq_client)
-    except Exception:  # noqa: BLE001 — LLM rewrite failure returns empty result
+    except GroqAPIError as exc:
+        _log.warning("Groq query rewrite failed: %s", exc)
         return [], True
 
     all_snippets: list[str] = []

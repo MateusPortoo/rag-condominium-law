@@ -2,6 +2,9 @@
 
 from unittest.mock import MagicMock, patch
 
+import requests
+from groq import APIError as GroqAPIError
+
 from rag_condominios.retrieval.crag_actions import (
     ambiguous_action,
     decompose_recompose,
@@ -127,7 +130,7 @@ def test_web_search_returns_snippets_on_success(mock_get: MagicMock) -> None:
 def test_web_search_returns_timed_out_on_network_error(mock_get: MagicMock) -> None:
     groq = MagicMock()
     groq.chat.completions.create.return_value = _groq_response("query rewritten")
-    mock_get.side_effect = Exception("timeout")
+    mock_get.side_effect = requests.exceptions.Timeout()
 
     chunks, timed_out = web_search("query", groq, ["planalto.gov.br"])
 
@@ -137,10 +140,12 @@ def test_web_search_returns_timed_out_on_network_error(mock_get: MagicMock) -> N
 
 @patch("rag_condominios.retrieval.crag_actions.requests.get")
 def test_web_search_timed_out_when_groq_fails(mock_get: MagicMock) -> None:
-    groq = MagicMock()
-    groq.chat.completions.create.side_effect = Exception("groq error")
+    groq_client = MagicMock()
+    groq_client.chat.completions.create.side_effect = GroqAPIError(
+        "groq error", MagicMock(), body=None
+    )
 
-    chunks, timed_out = web_search("query", groq, ["planalto.gov.br"])
+    chunks, timed_out = web_search("query", groq_client, ["planalto.gov.br"])
 
     assert timed_out
     assert chunks == []
@@ -190,7 +195,7 @@ def test_ambiguous_action_merges_recomposed_and_web(mock_get: MagicMock) -> None
 def test_ambiguous_action_graceful_on_web_timeout(mock_get: MagicMock) -> None:
     groq = MagicMock()
     groq.chat.completions.create.return_value = _groq_response("rewritten")
-    mock_get.side_effect = Exception("timeout")
+    mock_get.side_effect = requests.exceptions.Timeout()
 
     chunk = _ranked("c1", "Trecho. Relevante trecho.")
     reranker = _mock_reranker([0.80, 0.80])
