@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 from groq import APIError as GroqAPIError
 from groq import Groq
+from openai import OpenAIError
 
 _log = logging.getLogger(__name__)
 
@@ -64,14 +65,18 @@ def generate(
     context = build_context(chunks)
     user_message = build_user_message(context, query)
 
-    response = llm_client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        temperature=0,
-    )
+    try:
+        response = llm_client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message},
+            ],
+            temperature=0,
+        )
+    except (GroqAPIError, OpenAIError) as exc:
+        _log.error("LLM generation failed (model=%s, n_chunks=%d): %s", model, len(list(chunks)), exc)
+        raise
     content = response.choices[0].message.content if response.choices else None
     if not content:
         _log.warning("LLM returned empty content (model=%s)", model)

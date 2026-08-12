@@ -1,5 +1,6 @@
 """Mutable application state shared across requests via app.state.rag."""
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -20,6 +21,7 @@ class AppState:
     bm25_retriever: Any = None
     bm25_chunk_ids: list[str] = field(default_factory=list)
     recent_queries: list[MetricsEntry] = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     @property
     def is_ready(self) -> bool:
@@ -31,6 +33,7 @@ class AppState:
         )
 
     def record_query(self, entry: MetricsEntry) -> None:
-        self.recent_queries.append(entry)
-        if len(self.recent_queries) > _MAX_METRICS:
-            self.recent_queries.pop(0)
+        with self._lock:
+            self.recent_queries.append(entry)
+            if len(self.recent_queries) > _MAX_METRICS:
+                self.recent_queries.pop(0)

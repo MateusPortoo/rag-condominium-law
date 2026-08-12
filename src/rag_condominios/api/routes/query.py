@@ -96,8 +96,8 @@ def _retrieve_with_transforms(
     orig_dense = search_dense(orig_vector, qdrant_client)
     orig_sparse = search_sparse(question, state.bm25_retriever, state.bm25_chunk_ids)
 
-    # HyDE dense
-    hyde_dense = search_dense(hyde_emb, qdrant_client)
+    # HyDE dense (skip if embedding is empty — HyDE failed gracefully)
+    hyde_dense = search_dense(hyde_emb, qdrant_client) if hyde_emb else []
 
     # Multi-query dense results
     multi_dense_all = []
@@ -140,6 +140,7 @@ async def query_endpoint(
     stream: bool = Query(default=False),
 ) -> QueryResponse | StreamingResponse:
     if detect_injection(body.question):
+        _log.warning("injection attempt detected (question_len=%d)", len(body.question))
         raise HTTPException(status_code=400, detail="Query inválida.")
 
     state: AppState = request.app.state.rag
@@ -166,7 +167,11 @@ def _sync_answer(
 
     # 1. Semantic cache lookup
     from rag_condominios.retrieval.dense import embed_query
-    query_embedding = embed_query(question, openai_client)
+    try:
+        query_embedding = embed_query(question, openai_client)
+    except OpenAIError as exc:
+        _log.error("embedding failed for sync query: %s", exc)
+        raise HTTPException(status_code=503, detail="Embedding service unavailable.")
 
     try:
         ensure_cache_collection(qdrant_client)
@@ -246,7 +251,11 @@ def _sync_answer(
     llm_client, model_name = _pick_model(tier, verdict, openai_client, groq_client)
 
     # 6. Generate answer
-    answer = generate(question, final_chunks, llm_client, model_name)
+    try:
+        answer = generate(question, final_chunks, llm_client, model_name)
+    except (GroqAPIError, OpenAIError) as exc:
+        _log.error("answer generation failed (model=%s): %s", model_name, exc)
+        raise HTTPException(status_code=503, detail="LLM service unavailable.")
 
     latency_ms = int((time.monotonic() - t0) * 1000)
 
@@ -309,7 +318,12 @@ def _stream_events(
 
     # 1. Semantic cache check
     from rag_condominios.retrieval.dense import embed_query
-    query_embedding = embed_query(question, openai_client)
+    try:
+        query_embedding = embed_query(question, openai_client)
+    except OpenAIError as exc:
+        _log.error("embedding failed for stream query: %s", exc)
+        yield _sse("error", {"message": "Embedding service unavailable."})
+        return
 
     cache: QdrantSemanticCache | None = None
     try:
@@ -396,7 +410,12 @@ def _stream_events(
             yield _sse("error", {"message": "Falha na geração da resposta."})
             return
     else:
-        answer = generate(question, final_chunks, llm_client, model_name)
+        try:
+            answer = generate(question, final_chunks, llm_client, model_name)
+        except (GroqAPIError, OpenAIError) as exc:
+            _log.error("stream generation (non-Groq) failed (model=%s): %s", model_name, exc)
+            yield _sse("error", {"message": "Falha na geração da resposta."})
+            return
         full_answer_parts.append(answer)
         yield _sse("token", {"content": answer})
 

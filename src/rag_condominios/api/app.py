@@ -45,9 +45,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         ),
     )
     if DEFAULT_BM25_PATH.exists():
-        retriever, chunk_ids = load_index(DEFAULT_BM25_PATH)
-        state.bm25_retriever = retriever
-        state.bm25_chunk_ids = chunk_ids
+        try:
+            retriever, chunk_ids = load_index(DEFAULT_BM25_PATH)
+            state.bm25_retriever = retriever
+            state.bm25_chunk_ids = chunk_ids
+        except RuntimeError as exc:
+            _log.error("BM25 index load failed — sparse retrieval disabled: %s", exc)
+
+    if settings.qdrant_url and not settings.qdrant_api_key:
+        _log.warning("STARTUP: QDRANT_URL is set but QDRANT_API_KEY is empty — may fail on authenticated clusters")
 
     app.state.rag = state
     yield

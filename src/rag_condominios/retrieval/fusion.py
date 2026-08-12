@@ -1,8 +1,12 @@
 """Reciprocal Rank Fusion (RRF) — combines dense and sparse result lists."""
 
+import logging
+
 from qdrant_client.models import ScoredPoint
 
 from rag_condominios.core.config import RRF_K, TOP_K_DEFAULT
+
+_log = logging.getLogger(__name__)
 
 
 def reciprocal_rank_fusion(
@@ -23,7 +27,11 @@ def reciprocal_rank_fusion(
 
     # Dense results: extract chunk_id from payload
     for rank, point in enumerate(dense_results, start=1):
-        chunk_id = str(point.payload.get("chunk_id", point.id)) if point.payload else str(point.id)
+        if point.payload:
+            chunk_id = str(point.payload.get("chunk_id", point.id))
+        else:
+            _log.warning("Dense point id=%s has no payload — using point.id as chunk_id", point.id)
+            chunk_id = str(point.id)
         scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (k + rank)
 
     # Sparse results: already (chunk_id, bm25_score) pairs

@@ -98,15 +98,21 @@ def decompose_recompose(
 
 def _rewrite_for_web(query: str, groq_client: Groq) -> str:
     """Rewrite the query as a compact web-search string."""
+    from rag_condominios.retrieval.generator import GROQ_MODEL
+
     response = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": _REWRITE_SYSTEM},
             {"role": "user", "content": query},
         ],
         temperature=0,
     )
-    return response.choices[0].message.content or query
+    content = response.choices[0].message.content if response.choices else None
+    if not content:
+        _log.warning("_rewrite_for_web: Groq returned empty content, using original query")
+        return query
+    return content
 
 
 def _ddgo_snippets(search_query: str, domain: str) -> list[str] | None:
