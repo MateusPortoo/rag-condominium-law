@@ -1,7 +1,9 @@
-"""Simple generation: query + retrieved context → answer via Groq."""
+"""Simple generation: query + retrieved context → answer via any LLMClient."""
+
+from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from typing import Protocol
+from typing import Any, Protocol
 
 from groq import Groq
 
@@ -22,6 +24,15 @@ class _Chunk(Protocol):
     artigo: str
 
 
+class _LLMClient(Protocol):
+    """Minimal interface satisfied by groq.Groq and openai.OpenAI."""
+
+    @property
+    def chat(self) -> Any:
+        """Access to chat.completions.create(...)."""
+        ...
+
+
 def build_context(chunks: Sequence[_Chunk]) -> str:
     """Format retrieved chunks into a context string for the prompt."""
     parts: list[str] = []
@@ -39,14 +50,18 @@ def build_user_message(context: str, query: str) -> str:
 def generate(
     query: str,
     chunks: Sequence[_Chunk],
-    groq_client: Groq,
+    llm_client: _LLMClient,
+    model: str = GROQ_MODEL,
 ) -> str:
-    """Generate an answer given a query and retrieved context chunks."""
+    """Generate an answer given a query and retrieved context chunks.
+
+    Accepts any client satisfying _LLMClient (Groq or OpenAI).
+    """
     context = build_context(chunks)
     user_message = build_user_message(context, query)
 
-    response = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
+    response = llm_client.chat.completions.create(
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message},
@@ -60,13 +75,17 @@ def generate_stream(
     query: str,
     chunks: Sequence[_Chunk],
     groq_client: Groq,
+    model: str = GROQ_MODEL,
 ) -> Iterator[str]:
-    """Stream token-by-token generation; yields non-empty content strings."""
+    """Stream token-by-token generation; yields non-empty content strings.
+
+    Streaming is only used on the fast Groq path (simple queries).
+    """
     context = build_context(chunks)
     user_message = build_user_message(context, query)
 
     stream = groq_client.chat.completions.create(
-        model=GROQ_MODEL,
+        model=model,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_message},

@@ -8,7 +8,12 @@ Adding a new retriever or LLM provider means implementing these protocols,
 not modifying the pipeline internals — Open/Closed in practice.
 """
 
-from typing import Any, Literal, Protocol, runtime_checkable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from rag_condominios.retrieval.semantic_cache import CachedResponse
 
 
 @runtime_checkable
@@ -62,4 +67,34 @@ class BaseCRAGEvaluator(Protocol):
 
     def evaluate(self, ranked: list[Any]) -> Literal["correct", "ambiguous", "incorrect"]:
         """Return CRAG verdict based on rerank scores."""
+        ...
+
+
+@runtime_checkable
+class BaseQueryTransformer(Protocol):
+    """Structural interface for query transformation strategies (SPEC section 6).
+
+    Implementations may use HyDE, multi-query, or other techniques.
+    Returns a list of transformed query strings to be retrieved in parallel.
+    """
+
+    def transform(self, query: str) -> list[str]:
+        """Return one or more transformed queries derived from the original."""
+        ...
+
+
+@runtime_checkable
+class BaseSemanticCache(Protocol):
+    """Structural interface for semantic query caching (SPEC section 8).
+
+    Cache lookups use embedding similarity so near-duplicate questions
+    are served from cache without repeating the full retrieval pipeline.
+    """
+
+    def lookup(self, query_embedding: list[float]) -> CachedResponse | None:
+        """Return a cached response if one exists above the similarity threshold."""
+        ...
+
+    def store(self, query_embedding: list[float], response: CachedResponse) -> None:
+        """Persist a query embedding and its response for future lookups."""
         ...
