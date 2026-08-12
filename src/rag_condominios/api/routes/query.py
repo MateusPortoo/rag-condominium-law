@@ -43,7 +43,6 @@ from rag_condominios.retrieval.router import ModelTier, classify_query
 from rag_condominios.retrieval.semantic_cache import (
     CachedResponse,
     QdrantSemanticCache,
-    ensure_cache_collection,
 )
 
 _log = logging.getLogger(__name__)
@@ -173,14 +172,13 @@ def _sync_answer(
         _log.error("embedding failed for sync query: %s", exc)
         raise HTTPException(status_code=503, detail="Embedding service unavailable.")
 
+    cache: QdrantSemanticCache | None = None
+    cached: CachedResponse | None = None
     try:
-        ensure_cache_collection(qdrant_client)
         cache = QdrantSemanticCache(qdrant_client, settings.semantic_cache_threshold)
         cached = cache.lookup(query_embedding)
     except (UnexpectedResponse, ResponseHandlingException) as exc:
         _log.warning("semantic cache unavailable: %s", exc)
-        cache = None
-        cached = None
 
     if cached is not None:
         latency_ms = int((time.monotonic() - t0) * 1000)
@@ -203,6 +201,7 @@ def _sync_answer(
         )
 
     # 2. Query transformations + retrieval
+    query_transformed: str | None = None
     try:
         results = _retrieve_with_transforms(
             question, state, openai_client, groq_client, qdrant_client
@@ -217,18 +216,16 @@ def _sync_answer(
             bm25_retriever=state.bm25_retriever,
             bm25_chunk_ids=state.bm25_chunk_ids,
         )
-        query_transformed = None
 
     # 3. Rerank + CRAG evaluate
-    ranked, verdict = rerank_and_evaluate(question, results)
+    ranked, verdict = rerank_and_evaluate(question, results, reranker=state.reranker)
 
     # 4. CRAG action based on verdict
     web_search_timed_out = False
     final_chunks: list[Any] = list(ranked)
+    reranker = state.reranker
 
-    if verdict == "correct":
-        from rag_condominios.retrieval.reranker import MsMarcoReranker
-        reranker = MsMarcoReranker()
+    if verdict == "correct" and reranker is not None:
         final_chunks = list(decompose_recompose(question, ranked, reranker))
 
     elif verdict == "incorrect":
@@ -238,9 +235,7 @@ def _sync_answer(
         if web_chunks:
             final_chunks = list(web_chunks)
 
-    elif verdict == "ambiguous":
-        from rag_condominios.retrieval.reranker import MsMarcoReranker
-        reranker = MsMarcoReranker()
+    elif verdict == "ambiguous" and reranker is not None:
         merged, web_search_timed_out = ambiguous_action(
             question, ranked, reranker, groq_client, settings.allowed_domains_list
         )
@@ -256,6 +251,10 @@ def _sync_answer(
     except (GroqAPIError, OpenAIError) as exc:
         _log.error("answer generation failed (model=%s): %s", model_name, exc)
         raise HTTPException(status_code=503, detail="LLM service unavailable.")
+
+    if not answer:
+        _log.error("generate() returned empty content (model=%s)", model_name)
+        raise HTTPException(status_code=503, detail="LLM returned empty response.")
 
     latency_ms = int((time.monotonic() - t0) * 1000)
 
@@ -314,6 +313,20 @@ def _stream_events(
     groq_client: Groq,
     qdrant_client: QdrantClient,
 ) -> Iterator[str]:
+    try:
+        yield from _stream_events_inner(question, state, openai_client, groq_client, qdrant_client)
+    except Exception as exc:  # noqa: BLE001 — safety net: any unhandled error must close stream cleanly
+        _log.error("unhandled error in stream: %s", exc, exc_info=True)
+        yield _sse("error", {"message": "Internal error."})
+
+
+def _stream_events_inner(
+    question: str,
+    state: AppState,
+    openai_client: OpenAI,
+    groq_client: Groq,
+    qdrant_client: QdrantClient,
+) -> Iterator[str]:
     t0 = time.monotonic()
 
     # 1. Semantic cache check
@@ -326,13 +339,12 @@ def _stream_events(
         return
 
     cache: QdrantSemanticCache | None = None
+    cached: CachedResponse | None = None
     try:
-        ensure_cache_collection(qdrant_client)
         cache = QdrantSemanticCache(qdrant_client, settings.semantic_cache_threshold)
         cached = cache.lookup(query_embedding)
     except (UnexpectedResponse, ResponseHandlingException) as exc:
         _log.warning("semantic cache unavailable: %s", exc)
-        cached = None
 
     if cached is not None:
         yield _sse("token", {"content": cached.answer})
@@ -349,6 +361,7 @@ def _stream_events(
 
     # 2. Query transform + retrieval
     yield _sse("status", {"message": "transformando query..."})
+    query_transformed: str | None = None
     try:
         results = _retrieve_with_transforms(
             question, state, openai_client, groq_client, qdrant_client
@@ -363,18 +376,16 @@ def _stream_events(
             bm25_retriever=state.bm25_retriever,
             bm25_chunk_ids=state.bm25_chunk_ids,
         )
-        query_transformed = None
 
     yield _sse("status", {"message": "reranqueando documentos..."})
-    ranked, verdict = rerank_and_evaluate(question, results)
+    ranked, verdict = rerank_and_evaluate(question, results, reranker=state.reranker)
 
     # 3. CRAG action
     web_search_timed_out = False
     final_chunks: list[Any] = list(ranked)
+    reranker = state.reranker
 
-    if verdict == "correct":
-        from rag_condominios.retrieval.reranker import MsMarcoReranker
-        reranker = MsMarcoReranker()
+    if verdict == "correct" and reranker is not None:
         final_chunks = list(decompose_recompose(question, ranked, reranker))
 
     elif verdict == "incorrect":
@@ -385,10 +396,8 @@ def _stream_events(
         if web_chunks:
             final_chunks = list(web_chunks)
 
-    elif verdict == "ambiguous":
+    elif verdict == "ambiguous" and reranker is not None:
         yield _sse("status", {"message": "buscando fontes externas..."})
-        from rag_condominios.retrieval.reranker import MsMarcoReranker
-        reranker = MsMarcoReranker()
         merged, web_search_timed_out = ambiguous_action(
             question, ranked, reranker, groq_client, settings.allowed_domains_list
         )
@@ -416,10 +425,18 @@ def _stream_events(
             _log.error("stream generation (non-Groq) failed (model=%s): %s", model_name, exc)
             yield _sse("error", {"message": "Falha na geração da resposta."})
             return
+        if not answer:
+            _log.error("generate() returned empty content in stream (model=%s)", model_name)
+            yield _sse("error", {"message": "Falha na geração da resposta."})
+            return
         full_answer_parts.append(answer)
         yield _sse("token", {"content": answer})
 
     full_answer = "".join(full_answer_parts)
+    if not full_answer:
+        _log.error("stream produced empty answer (model=%s)", model_name)
+        yield _sse("error", {"message": "Falha na geração da resposta."})
+        return
 
     # 6. Store in cache
     sources_dicts = _sources_dicts(ranked)

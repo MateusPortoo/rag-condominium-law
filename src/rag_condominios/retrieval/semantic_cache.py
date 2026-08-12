@@ -79,11 +79,22 @@ class QdrantSemanticCache:
                 verdict,
             )
             return None
+        raw_sources = payload.get("sources", [])
+        validated_sources: list[dict[str, Any]] = []
+        for s in raw_sources:
+            if isinstance(s, dict) and isinstance(s.get("chunk"), str):
+                validated_sources.append({
+                    "chunk": s.get("chunk", ""),
+                    "score": float(s.get("score", 0.0)),
+                    "artigo": str(s.get("artigo", "")),
+                })
+            else:
+                _log.warning("Cache entry has malformed source item — skipping: %r", s)
         return CachedResponse(
             question=payload.get("question", ""),
             answer=answer,
             crag_verdict=verdict,
-            sources=payload.get("sources", []),
+            sources=validated_sources,
         )
 
     def store(self, query_embedding: list[float], response: CachedResponse) -> None:

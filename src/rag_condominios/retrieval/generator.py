@@ -65,6 +65,7 @@ def generate(
     context = build_context(chunks)
     user_message = build_user_message(context, query)
 
+    n_chunks = len(chunks)
     try:
         response = llm_client.chat.completions.create(
             model=model,
@@ -75,9 +76,9 @@ def generate(
             temperature=0,
         )
     except (GroqAPIError, OpenAIError) as exc:
-        _log.error("LLM generation failed (model=%s, n_chunks=%d): %s", model, len(list(chunks)), exc)
+        _log.error("LLM generation failed (model=%s, n_chunks=%d): %s", model, n_chunks, exc)
         raise
-    content = response.choices[0].message.content if response.choices else None
+    content: str | None = response.choices[0].message.content if response.choices else None
     if not content:
         _log.warning("LLM returned empty content (model=%s)", model)
         return ""

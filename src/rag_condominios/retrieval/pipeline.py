@@ -23,7 +23,10 @@ if TYPE_CHECKING:
 
 from rag_condominios.core.protocols import BaseCRAGEvaluator, BaseReranker
 
-DEFAULT_BM25_PATH = Path("data/bm25_index.pkl")
+# Resolved relative to this file so the path is CWD-independent.
+# pipeline.py lives at src/rag_condominios/retrieval/pipeline.py
+# → 4 parents up → repo root → data/bm25_index.pkl
+DEFAULT_BM25_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "bm25_index.pkl"
 
 
 @dataclass

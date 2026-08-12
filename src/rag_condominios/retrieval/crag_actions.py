@@ -134,14 +134,21 @@ def _ddgo_snippets(search_query: str, domain: str) -> list[str] | None:
         _log.warning("DuckDuckGo fetch failed for domain %s: %s", domain, exc)
         return None
 
+    from rag_condominios.api.security import detect_injection
+
+    _MAX_SNIPPET_LEN = 500
+    _MAX_SNIPPETS = 10
+
     snippets: list[str] = []
     abstract = data.get("AbstractText", "")
-    if abstract:
-        snippets.append(abstract)
+    if abstract and not detect_injection(abstract):
+        snippets.append(abstract[:_MAX_SNIPPET_LEN])
     for item in data.get("RelatedTopics", []):
+        if len(snippets) >= _MAX_SNIPPETS:
+            break
         text = item.get("Text", "")
-        if text:
-            snippets.append(text)
+        if text and not detect_injection(text):
+            snippets.append(text[:_MAX_SNIPPET_LEN])
     return snippets
 
 

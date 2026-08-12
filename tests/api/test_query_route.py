@@ -67,7 +67,6 @@ def test_query_returns_answer_with_mocked_pipeline() -> None:
     app = create_app()
     with (
         patch("rag_condominios.retrieval.dense.embed_query", return_value=_FAKE_EMBEDDING),
-        patch("rag_condominios.api.routes.query.ensure_cache_collection"),
         patch("rag_condominios.api.routes.query.QdrantSemanticCache", _no_cache()),
         patch(
             "rag_condominios.api.routes.query._retrieve_with_transforms",
@@ -81,7 +80,6 @@ def test_query_returns_answer_with_mocked_pipeline() -> None:
             "rag_condominios.api.routes.query.decompose_recompose",
             return_value=fake_ranked,
         ),
-        patch("rag_condominios.retrieval.reranker.CrossEncoder"),
         patch("rag_condominios.api.routes.query.generate", return_value="Resposta gerada."),
         TestClient(app) as client,
     ):
@@ -103,7 +101,6 @@ def test_query_returns_incorrect_when_no_chunks() -> None:
     app = create_app()
     with (
         patch("rag_condominios.retrieval.dense.embed_query", return_value=_FAKE_EMBEDDING),
-        patch("rag_condominios.api.routes.query.ensure_cache_collection"),
         patch("rag_condominios.api.routes.query.QdrantSemanticCache", _no_cache()),
         patch(
             "rag_condominios.api.routes.query._retrieve_with_transforms",
