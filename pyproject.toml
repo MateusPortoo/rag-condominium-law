@@ -44,6 +44,10 @@ target-version = "py311"
 python_version = "3.11"
 strict = true
 
+[[tool.mypy.overrides]]
+module = ["bm25s", "datasets"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

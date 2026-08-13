@@ -53,8 +53,8 @@ def run_evaluate(request: Request) -> EvaluateResponse:
             detail="All evaluation cases failed during pipeline execution.",
         )
 
-    _REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
+        _REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(_REPORT_PATH, "w", encoding="utf-8") as fh:
             json.dump(
                 {
