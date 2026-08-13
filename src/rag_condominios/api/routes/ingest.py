@@ -18,7 +18,8 @@ _SCROLL_LIMIT = 1000
 
 def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
     """Scroll Qdrant, rebuild BM25 in-memory, return (retriever, chunk_ids, count)."""
-    assert state.qdrant_client is not None
+    if state.qdrant_client is None:
+        raise RuntimeError("qdrant_client is None — called before initialization")
 
     texts: list[str] = []
     chunk_ids: list[str] = []
