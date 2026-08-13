@@ -1,9 +1,9 @@
-"""Index chunks into Qdrant (dense) and bm25s (sparse) atomically."""
+﻿"""Index chunks into Qdrant (dense) and bm25s (sparse) atomically."""
 
 import pickle
 from pathlib import Path
 
-import bm25s  # type: ignore[import-untyped]
+import bm25s
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
@@ -68,7 +68,7 @@ class Indexer:
         points = self._build_qdrant_points(chunks, embeddings)
         self._qdrant.upsert(collection_name=COLLECTION_NAME, points=points)
 
-        # BM25 built after Qdrant succeeds — if this raises, Qdrant data is present
+        # BM25 built after Qdrant succeeds â€” if this raises, Qdrant data is present
         # but BM25 is not committed to disk (save_bm25 must be called separately).
         try:
             self._bm25 = self._build_bm25_index(chunks)
@@ -88,3 +88,4 @@ class Indexer:
     def load_bm25(self, path: str) -> None:
         with open(path, "rb") as fh:
             self._bm25 = pickle.load(fh)
+

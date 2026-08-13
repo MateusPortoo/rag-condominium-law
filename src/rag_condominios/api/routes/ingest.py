@@ -1,9 +1,9 @@
-"""POST /ingest — rebuild BM25 index from existing Qdrant data."""
+﻿"""POST /ingest â€” rebuild BM25 index from existing Qdrant data."""
 
 import pickle
 from typing import Any
 
-import bm25s  # type: ignore[import-untyped]
+import bm25s
 from fastapi import APIRouter, HTTPException, Request
 
 from rag_condominios.api.schemas import IngestResponse
@@ -58,10 +58,11 @@ def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
 def ingest(request: Request) -> IngestResponse:
     state: AppState = request.app.state.rag
     if state.qdrant_client is None:
-        raise HTTPException(status_code=503, detail="Qdrant não inicializado.")
+        raise HTTPException(status_code=503, detail="Qdrant nÃ£o inicializado.")
 
     retriever, chunk_ids, count = _rebuild_bm25(state)
     state.bm25_retriever = retriever
     state.bm25_chunk_ids = chunk_ids
 
     return IngestResponse(status="ok", chunks_indexed=count)
+

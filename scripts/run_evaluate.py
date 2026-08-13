@@ -1,13 +1,12 @@
 """CLI script to run RAGAS evaluation against the golden set."""
 
 import json
+import logging
 import sys
 from pathlib import Path
-from typing import Any
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
-
-import pickle
+# Allow running from repo root without installing the package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from groq import Groq
 from openai import OpenAI
@@ -15,16 +14,15 @@ from qdrant_client import QdrantClient
 
 from rag_condominios.core.config import settings
 from rag_condominios.eval.evaluator import EvalReport, evaluate_golden_set
-from rag_condominios.eval.loader import evaluable_cases
+from rag_condominios.eval.loader import GOLDEN_SET_PATH, evaluable_cases
+from rag_condominios.retrieval.pipeline import DEFAULT_BM25_PATH
+from rag_condominios.retrieval.sparse import load_index
 
-BM25_INDEX_PATH = Path("data/bm25_index.pkl")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s — %(message)s")
+_log = logging.getLogger(__name__)
+
+_REPORT_PATH = DEFAULT_BM25_PATH.parent / "eval_report.json"
 PASS_THRESHOLD = 0.70
-
-
-def _load_bm25(path: Path) -> tuple[Any, list[str]]:
-    with open(path, "rb") as f:
-        payload: dict[str, Any] = pickle.load(f)
-    return payload["retriever"], payload["chunk_ids"]
 
 
 def _print_report(report: EvalReport) -> None:
@@ -36,6 +34,11 @@ def _print_report(report: EvalReport) -> None:
     print(f"context_recall     : {report.context_recall:.3f}")
     print(f"faithfulness       : {report.faithfulness:.3f}")
     print(f"answer_relevancy   : {report.answer_relevancy:.3f}")
+
+    if report.verdict_distribution:
+        print("\nCRAG verdict distribution:")
+        for verdict, count in sorted(report.verdict_distribution.items()):
+            print(f"  {verdict:<12} {count}")
 
     if report.by_category:
         print("\nBy category:")
@@ -52,20 +55,28 @@ def _print_report(report: EvalReport) -> None:
 
 
 def main(fail_below_threshold: bool = False) -> None:
-    if not BM25_INDEX_PATH.exists():
-        print(f"[eval] BM25 index not found at {BM25_INDEX_PATH}. Run ingest first.")
+    if not DEFAULT_BM25_PATH.exists():
+        _log.error("BM25 index not found at %s. Run ingest first.", DEFAULT_BM25_PATH)
+        sys.exit(1)
+
+    if not GOLDEN_SET_PATH.exists():
+        _log.error("Golden set not found at %s. Run data preparation first.", GOLDEN_SET_PATH)
         sys.exit(1)
 
     cases = evaluable_cases()
-    print(f"[eval] Loaded {len(cases)} evaluable cases from golden set.")
+    _log.info("Loaded %d evaluable cases from golden set.", len(cases))
 
-    bm25_retriever, bm25_chunk_ids = _load_bm25(BM25_INDEX_PATH)
+    try:
+        bm25_retriever, bm25_chunk_ids = load_index(DEFAULT_BM25_PATH)
+    except RuntimeError as exc:
+        _log.error("BM25 index is corrupt or invalid: %s", exc)
+        sys.exit(1)
 
     openai_client = OpenAI(api_key=settings.openai_api_key)
     qdrant_client = QdrantClient(url=settings.qdrant_url, api_key=settings.qdrant_api_key)
     groq_client = Groq(api_key=settings.groq_api_key)
 
-    print("[eval] Running pipeline on all cases...")
+    _log.info("Running pipeline on all cases...")
     report = evaluate_golden_set(
         cases=cases,
         openai_client=openai_client,
@@ -77,22 +88,28 @@ def main(fail_below_threshold: bool = False) -> None:
 
     _print_report(report)
 
-    # Save JSON report alongside the script output for CI artifacts
-    report_path = Path("data/eval_report.json")
-    report_path.write_text(
-        json.dumps({
-            "context_precision": report.context_precision,
-            "context_recall": report.context_recall,
-            "faithfulness": report.faithfulness,
-            "answer_relevancy": report.answer_relevancy,
-            "n_cases": report.n_cases,
-            "by_category": report.by_category,
-            "passed": report.passed(PASS_THRESHOLD),
-            "threshold": PASS_THRESHOLD,
-        }, indent=2),
-        encoding="utf-8",
-    )
-    print(f"[eval] Report saved to {report_path}")
+    try:
+        _REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _REPORT_PATH.write_text(
+            json.dumps(
+                {
+                    "context_precision": report.context_precision,
+                    "context_recall": report.context_recall,
+                    "faithfulness": report.faithfulness,
+                    "answer_relevancy": report.answer_relevancy,
+                    "n_cases": report.n_cases,
+                    "by_category": report.by_category,
+                    "verdict_distribution": report.verdict_distribution,
+                    "passed": report.passed(PASS_THRESHOLD),
+                    "threshold": PASS_THRESHOLD,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        _log.info("Report saved to %s", _REPORT_PATH)
+    except OSError as exc:
+        _log.warning("Could not save report: %s", exc)
 
     if fail_below_threshold and not report.passed(PASS_THRESHOLD):
         sys.exit(1)
