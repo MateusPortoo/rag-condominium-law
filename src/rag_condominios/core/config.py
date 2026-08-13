@@ -13,8 +13,13 @@ EMBEDDING_MODEL = "text-embedding-3-small"
 TOP_K_DEFAULT = 20
 RRF_K = 60
 
-# Reranker (Phase 2 / DC-01)
-RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+# Reranker models (DC-01)
+# Baseline: English-only, used to measure context_precision before swap.
+RERANKER_MODEL_MSMARCO = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+# DC-01 replacement: multilingual, expected to outperform on Portuguese corpus.
+RERANKER_MODEL_BGE = "BAAI/bge-reranker-v2-m3"
+# Default kept as ms-marco for backward compatibility; override via RERANKER_MODEL env var.
+RERANKER_MODEL = RERANKER_MODEL_MSMARCO
 
 # CRAG thresholds — see SPEC section 7.2
 CRAG_CORRECT_THRESHOLD = 0.75
@@ -34,6 +39,7 @@ class Settings(BaseSettings):
     openai_frontier_model: str = ""
     semantic_cache_threshold: float = 0.95
     allowed_domains: str = "planalto.gov.br,jusbrasil.com.br,stj.jus.br"
+    reranker_model: str = RERANKER_MODEL
 
     @property
     def allowed_domains_list(self) -> list[str]:
