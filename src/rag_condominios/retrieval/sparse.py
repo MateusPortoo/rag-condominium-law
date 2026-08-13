@@ -1,11 +1,11 @@
-"""Sparse retrieval via BM25 (in-memory, bm25s library)."""
+﻿"""Sparse retrieval via BM25 (in-memory, bm25s library)."""
 
 import logging
 import pickle
 from pathlib import Path
 from typing import Any
 
-import bm25s  # type: ignore[import-untyped]
+import bm25s
 
 from rag_condominios.core.config import TOP_K_DEFAULT
 
@@ -32,7 +32,7 @@ def search_sparse(
     tokenized = bm25s.tokenize(query)
     results, scores = retriever.retrieve(tokenized, k=min(top_k, len(chunk_ids)))
 
-    # results shape: (1, k) — we queried a single string
+    # results shape: (1, k) â€” we queried a single string
     ids = results[0].tolist()
     raw_scores = scores[0].tolist()
 
@@ -41,9 +41,10 @@ def search_sparse(
         i = int(idx)
         if i >= len(chunk_ids):
             _log.warning(
-                "BM25 returned out-of-range index %d (chunk_ids len=%d) — skipping stale entry",
+                "BM25 returned out-of-range index %d (chunk_ids len=%d) â€” skipping stale entry",
                 i, len(chunk_ids),
             )
             continue
         pairs.append((chunk_ids[i], float(score)))
     return pairs
+

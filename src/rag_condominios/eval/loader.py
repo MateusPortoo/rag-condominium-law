@@ -4,7 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-GOLDEN_SET_PATH = Path("data/golden_set.json")
+# Resolved relative to this file so the path is CWD-independent.
+# loader.py is at src/rag_condominios/eval/loader.py → 4 parents up → repo root
+GOLDEN_SET_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "golden_set.json"
 
 # Categories that require real retrieved context to evaluate.
 # Adversarial cases (prompt injection, out-of-scope) are excluded from RAGAS
