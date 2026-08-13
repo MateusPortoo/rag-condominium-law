@@ -1,6 +1,7 @@
 ﻿"""Index chunks into Qdrant (dense) and bm25s (sparse) atomically."""
 
-import pickle
+import json
+import shutil
 from pathlib import Path
 
 import bm25s
@@ -17,6 +18,7 @@ class Indexer:
     def __init__(self, qdrant_url: str, qdrant_api_key: str) -> None:
         self._qdrant = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
         self._bm25: bm25s.BM25 | None = None
+        self._chunk_ids: list[str] = []
 
     def _ensure_collection_exists(self) -> None:
         existing = [c.name for c in self._qdrant.get_collections().collections]
@@ -50,10 +52,12 @@ class Indexer:
         ]
 
     def _build_bm25_index(self, chunks: list[ArticleChunk]) -> bm25s.BM25:
-        corpus = [chunk.text for chunk in chunks]
+        valid = [(chunk.id, chunk.text.strip()) for chunk in chunks if chunk.text.strip()]
+        ids, corpus = (list(x) for x in zip(*valid)) if valid else ([], [])
         tokenized = bm25s.tokenize(corpus)
         retriever = bm25s.BM25()
         retriever.index(tokenized)
+        self._chunk_ids = ids
         return retriever
 
     def index(self, chunks: list[ArticleChunk], embeddings: list[list[float]]) -> None:
@@ -79,13 +83,24 @@ class Indexer:
             ) from exc
 
     def save_bm25(self, path: str) -> None:
+        """Save BM25 index atomically: write to a temp dir, then rename."""
         if self._bm25 is None:
             raise RuntimeError("No BM25 index in memory. Run index() before save_bm25().")
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as fh:
-            pickle.dump(self._bm25, fh)
-
-    def load_bm25(self, path: str) -> None:
-        with open(path, "rb") as fh:
-            self._bm25 = pickle.load(fh)
+        save_dir = Path(path)
+        tmp_dir = save_dir.parent / (save_dir.name + ".tmp")
+        try:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+            tmp_dir.mkdir(parents=True)
+            self._bm25.save(str(tmp_dir), show_progress=False)
+            (tmp_dir / "chunk_ids.json").write_text(
+                json.dumps(self._chunk_ids), encoding="utf-8"
+            )
+            if save_dir.exists():
+                shutil.rmtree(save_dir)
+            tmp_dir.rename(save_dir)
+        except Exception:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise
 

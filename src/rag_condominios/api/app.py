@@ -77,10 +77,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if settings.qdrant_url and not settings.qdrant_api_key:
         _log.warning("STARTUP: QDRANT_URL is set but QDRANT_API_KEY is empty — may fail on authenticated clusters")
 
-    # Initialize reranker once at startup to avoid per-request model loading.
+    # Initialize reranker once at startup. Model selected via RERANKER_MODEL env var.
+    # Default: ms-marco (English baseline). Set to BAAI/bge-reranker-v2-m3 for DC-01.
     try:
-        from rag_condominios.retrieval.reranker import MsMarcoReranker
-        state.reranker = MsMarcoReranker()
+        from rag_condominios.retrieval.reranker import create_reranker
+        state.reranker = create_reranker(settings.reranker_model)
+        _log.info("STARTUP: reranker loaded: %s", settings.reranker_model)
     except Exception as exc:  # noqa: BLE001 — any model-load failure degrades gracefully
         _log.error("Reranker init failed — reranking disabled (pipeline will use rrf_score): %s", exc)
 

@@ -25,8 +25,8 @@ from rag_condominios.core.protocols import BaseCRAGEvaluator, BaseReranker
 
 # Resolved relative to this file so the path is CWD-independent.
 # pipeline.py lives at src/rag_condominios/retrieval/pipeline.py
-# → 4 parents up → repo root → data/bm25_index.pkl
-DEFAULT_BM25_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "bm25_index.pkl"
+# → 4 parents up → repo root → data/bm25_index  (directory, not a .pkl file)
+DEFAULT_BM25_PATH = Path(__file__).resolve().parent.parent.parent.parent / "data" / "bm25_index"
 
 
 @dataclass
@@ -102,11 +102,14 @@ def rerank_and_evaluate(
     """
     from typing import cast
 
+    from rag_condominios.core.config import settings as _settings
     from rag_condominios.retrieval.crag import CRAGEvaluator as _CRAGEvaluator
-    from rag_condominios.retrieval.reranker import MsMarcoReranker as _MsMarcoReranker
     from rag_condominios.retrieval.reranker import RankedResult as _RankedResult
+    from rag_condominios.retrieval.reranker import create_reranker as _create_reranker
 
-    _reranker: BaseReranker = reranker or _MsMarcoReranker()
+    if reranker is None:
+        _log.warning("reranker not injected — instantiating %s as fallback", _settings.reranker_model)
+    _reranker: BaseReranker = reranker or _create_reranker(_settings.reranker_model)
     _evaluator: BaseCRAGEvaluator = evaluator or _CRAGEvaluator()
     ranked = cast(list[_RankedResult], _reranker.rerank(query, results))
     verdict = _evaluator.evaluate(ranked)

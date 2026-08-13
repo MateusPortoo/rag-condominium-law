@@ -1,4 +1,4 @@
-"""Run RAGAS evaluation against the golden set."""
+﻿"""Run RAGAS evaluation against the golden set."""
 
 import logging
 from dataclasses import dataclass, field
@@ -162,7 +162,7 @@ def evaluate_golden_set(
         "ground_truth": [c.reference_answer for c in eval_cases],
     })
 
-    # RAGAS uses OpenAI internally as LLM judge — uses the key from environment.
+    # RAGAS uses OpenAI internally as LLM judge â€” uses the key from environment.
     # Typed as Any: ragas 0.4.x stubs are incomplete and EvaluationResult is not
     # explicitly exported, making the union type unresolvable under mypy strict.
     scores: Any = ragas_evaluate(dataset, metrics=ragas_metrics)
@@ -189,3 +189,4 @@ def evaluate_golden_set(
         by_category=by_category,
         verdict_distribution=verdict_distribution,
     )
+

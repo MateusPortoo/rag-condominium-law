@@ -1,6 +1,7 @@
-﻿"""POST /ingest â€” rebuild BM25 index from existing Qdrant data."""
+"""POST /ingest - rebuild BM25 index from existing Qdrant data."""
 
-import pickle
+import json
+import shutil
 from typing import Any
 
 import bm25s
@@ -18,7 +19,8 @@ _SCROLL_LIMIT = 1000
 
 def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
     """Scroll Qdrant, rebuild BM25 in-memory, return (retriever, chunk_ids, count)."""
-    assert state.qdrant_client is not None
+    if state.qdrant_client is None:
+        raise RuntimeError("qdrant_client is None — called before initialization")
 
     texts: list[str] = []
     chunk_ids: list[str] = []
@@ -34,8 +36,10 @@ def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
         points, next_offset = response
         for point in points:
             if point.payload:
-                texts.append(str(point.payload.get("text", "")))
-                chunk_ids.append(str(point.payload.get("chunk_id", point.id)))
+                text = str(point.payload.get("text", "")).strip()
+                if text:
+                    texts.append(text)
+                    chunk_ids.append(str(point.payload.get("chunk_id", point.id)))
         if next_offset is None:
             break
         offset = next_offset  # type: ignore[assignment]
@@ -47,9 +51,20 @@ def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
     retriever = bm25s.BM25()
     retriever.index(tokenized)
 
-    DEFAULT_BM25_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DEFAULT_BM25_PATH, "wb") as fh:
-        pickle.dump({"retriever": retriever, "chunk_ids": chunk_ids}, fh)
+    tmp_path = DEFAULT_BM25_PATH.parent / (DEFAULT_BM25_PATH.name + ".tmp")
+    try:
+        if tmp_path.exists():
+            shutil.rmtree(tmp_path)
+        tmp_path.mkdir(parents=True)
+        retriever.save(str(tmp_path), show_progress=False)
+        (tmp_path / "chunk_ids.json").write_text(json.dumps(chunk_ids), encoding="utf-8")
+        if DEFAULT_BM25_PATH.exists():
+            shutil.rmtree(DEFAULT_BM25_PATH)
+        tmp_path.rename(DEFAULT_BM25_PATH)
+    except Exception:
+        if tmp_path.exists():
+            shutil.rmtree(tmp_path, ignore_errors=True)
+        raise
 
     return retriever, chunk_ids, len(texts)
 
@@ -58,11 +73,11 @@ def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
 def ingest(request: Request) -> IngestResponse:
     state: AppState = request.app.state.rag
     if state.qdrant_client is None:
-        raise HTTPException(status_code=503, detail="Qdrant nÃ£o inicializado.")
+        raise HTTPException(status_code=503, detail="Qdrant nao inicializado.")
 
     retriever, chunk_ids, count = _rebuild_bm25(state)
-    state.bm25_retriever = retriever
-    state.bm25_chunk_ids = chunk_ids
+    with state._lock:
+        state.bm25_retriever = retriever
+        state.bm25_chunk_ids = chunk_ids
 
     return IngestResponse(status="ok", chunks_indexed=count)
-

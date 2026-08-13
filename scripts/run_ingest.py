@@ -19,7 +19,7 @@ from rag_condominios.ingest import (
 
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP = 77
-BM25_INDEX_PATH = "data/bm25_index.pkl"
+BM25_INDEX_PATH = str(Path(__file__).resolve().parents[1] / "data" / "bm25_index")
 
 
 def _ask_confirm_chunk_size(chunk_size: int) -> int:
