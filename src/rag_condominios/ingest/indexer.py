@@ -1,6 +1,6 @@
 ﻿"""Index chunks into Qdrant (dense) and bm25s (sparse) atomically."""
 
-import pickle
+import json
 from pathlib import Path
 
 import bm25s
@@ -17,6 +17,7 @@ class Indexer:
     def __init__(self, qdrant_url: str, qdrant_api_key: str) -> None:
         self._qdrant = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
         self._bm25: bm25s.BM25 | None = None
+        self._chunk_ids: list[str] = []
 
     def _ensure_collection_exists(self) -> None:
         existing = [c.name for c in self._qdrant.get_collections().collections]
@@ -54,6 +55,7 @@ class Indexer:
         tokenized = bm25s.tokenize(corpus)
         retriever = bm25s.BM25()
         retriever.index(tokenized)
+        self._chunk_ids = [chunk.id for chunk in chunks]
         return retriever
 
     def index(self, chunks: list[ArticleChunk], embeddings: list[list[float]]) -> None:
@@ -79,13 +81,13 @@ class Indexer:
             ) from exc
 
     def save_bm25(self, path: str) -> None:
+        """Save BM25 index to a directory using bm25s native format (no pickle)."""
         if self._bm25 is None:
             raise RuntimeError("No BM25 index in memory. Run index() before save_bm25().")
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as fh:
-            pickle.dump(self._bm25, fh)
-
-    def load_bm25(self, path: str) -> None:
-        with open(path, "rb") as fh:
-            self._bm25 = pickle.load(fh)
+        save_dir = Path(path)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        self._bm25.save(str(save_dir), show_progress=False)
+        (save_dir / "chunk_ids.json").write_text(
+            json.dumps(self._chunk_ids), encoding="utf-8"
+        )
 

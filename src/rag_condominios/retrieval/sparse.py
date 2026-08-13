@@ -1,7 +1,7 @@
 ﻿"""Sparse retrieval via BM25 (in-memory, bm25s library)."""
 
+import json
 import logging
-import pickle
 from pathlib import Path
 from typing import Any
 
@@ -13,12 +13,20 @@ _log = logging.getLogger(__name__)
 
 
 def load_index(index_path: str | Path) -> tuple[Any, list[str]]:
-    """Load the BM25 index and the corresponding chunk ID list from disk."""
+    """Load the BM25 index and chunk ID list from a directory saved by bm25s.
+
+    The index directory contains numpy arrays + JSON files written by
+    bm25s.BM25.save(). chunk_ids.json holds the ordered list of chunk IDs
+    that maps BM25 result positions back to Qdrant chunk identifiers.
+    """
+    index_path = Path(index_path)
     try:
-        with open(index_path, "rb") as f:
-            payload: dict[str, Any] = pickle.load(f)
-        return payload["retriever"], payload["chunk_ids"]
-    except (pickle.UnpicklingError, KeyError, EOFError, OSError) as exc:
+        retriever = bm25s.BM25.load(str(index_path), load_corpus=False, show_progress=False)
+        chunk_ids: list[str] = json.loads(
+            (index_path / "chunk_ids.json").read_text(encoding="utf-8")
+        )
+        return retriever, chunk_ids
+    except (OSError, KeyError, ValueError, json.JSONDecodeError) as exc:
         raise RuntimeError(f"BM25 index at {index_path!r} is corrupt or invalid: {exc}") from exc
 
 

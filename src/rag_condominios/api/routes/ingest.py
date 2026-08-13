@@ -1,6 +1,6 @@
-﻿"""POST /ingest â€” rebuild BM25 index from existing Qdrant data."""
+"""POST /ingest - rebuild BM25 index from existing Qdrant data."""
 
-import pickle
+import json
 from typing import Any
 
 import bm25s
@@ -47,9 +47,11 @@ def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
     retriever = bm25s.BM25()
     retriever.index(tokenized)
 
-    DEFAULT_BM25_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(DEFAULT_BM25_PATH, "wb") as fh:
-        pickle.dump({"retriever": retriever, "chunk_ids": chunk_ids}, fh)
+    DEFAULT_BM25_PATH.mkdir(parents=True, exist_ok=True)
+    retriever.save(str(DEFAULT_BM25_PATH), show_progress=False)
+    (DEFAULT_BM25_PATH / "chunk_ids.json").write_text(
+        json.dumps(chunk_ids), encoding="utf-8"
+    )
 
     return retriever, chunk_ids, len(texts)
 
@@ -58,11 +60,10 @@ def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
 def ingest(request: Request) -> IngestResponse:
     state: AppState = request.app.state.rag
     if state.qdrant_client is None:
-        raise HTTPException(status_code=503, detail="Qdrant nÃ£o inicializado.")
+        raise HTTPException(status_code=503, detail="Qdrant nao inicializado.")
 
     retriever, chunk_ids, count = _rebuild_bm25(state)
     state.bm25_retriever = retriever
     state.bm25_chunk_ids = chunk_ids
 
     return IngestResponse(status="ok", chunks_indexed=count)
-
