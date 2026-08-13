@@ -1,6 +1,7 @@
 """POST /ingest - rebuild BM25 index from existing Qdrant data."""
 
 import json
+import shutil
 from typing import Any
 
 import bm25s
@@ -35,8 +36,10 @@ def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
         points, next_offset = response
         for point in points:
             if point.payload:
-                texts.append(str(point.payload.get("text", "")))
-                chunk_ids.append(str(point.payload.get("chunk_id", point.id)))
+                text = str(point.payload.get("text", "")).strip()
+                if text:
+                    texts.append(text)
+                    chunk_ids.append(str(point.payload.get("chunk_id", point.id)))
         if next_offset is None:
             break
         offset = next_offset  # type: ignore[assignment]
@@ -48,11 +51,20 @@ def _rebuild_bm25(state: AppState) -> tuple[Any, list[str], int]:
     retriever = bm25s.BM25()
     retriever.index(tokenized)
 
-    DEFAULT_BM25_PATH.mkdir(parents=True, exist_ok=True)
-    retriever.save(str(DEFAULT_BM25_PATH), show_progress=False)
-    (DEFAULT_BM25_PATH / "chunk_ids.json").write_text(
-        json.dumps(chunk_ids), encoding="utf-8"
-    )
+    tmp_path = DEFAULT_BM25_PATH.parent / (DEFAULT_BM25_PATH.name + ".tmp")
+    try:
+        if tmp_path.exists():
+            shutil.rmtree(tmp_path)
+        tmp_path.mkdir(parents=True)
+        retriever.save(str(tmp_path), show_progress=False)
+        (tmp_path / "chunk_ids.json").write_text(json.dumps(chunk_ids), encoding="utf-8")
+        if DEFAULT_BM25_PATH.exists():
+            shutil.rmtree(DEFAULT_BM25_PATH)
+        tmp_path.rename(DEFAULT_BM25_PATH)
+    except Exception:
+        if tmp_path.exists():
+            shutil.rmtree(tmp_path, ignore_errors=True)
+        raise
 
     return retriever, chunk_ids, len(texts)
 
@@ -64,7 +76,8 @@ def ingest(request: Request) -> IngestResponse:
         raise HTTPException(status_code=503, detail="Qdrant nao inicializado.")
 
     retriever, chunk_ids, count = _rebuild_bm25(state)
-    state.bm25_retriever = retriever
-    state.bm25_chunk_ids = chunk_ids
+    with state._lock:
+        state.bm25_retriever = retriever
+        state.bm25_chunk_ids = chunk_ids
 
     return IngestResponse(status="ok", chunks_indexed=count)

@@ -1,6 +1,7 @@
 ﻿"""Index chunks into Qdrant (dense) and bm25s (sparse) atomically."""
 
 import json
+import shutil
 from pathlib import Path
 
 import bm25s
@@ -51,11 +52,12 @@ class Indexer:
         ]
 
     def _build_bm25_index(self, chunks: list[ArticleChunk]) -> bm25s.BM25:
-        corpus = [chunk.text for chunk in chunks]
+        valid = [(chunk.id, chunk.text.strip()) for chunk in chunks if chunk.text.strip()]
+        ids, corpus = (list(x) for x in zip(*valid)) if valid else ([], [])
         tokenized = bm25s.tokenize(corpus)
         retriever = bm25s.BM25()
         retriever.index(tokenized)
-        self._chunk_ids = [chunk.id for chunk in chunks]
+        self._chunk_ids = ids
         return retriever
 
     def index(self, chunks: list[ArticleChunk], embeddings: list[list[float]]) -> None:
@@ -81,13 +83,24 @@ class Indexer:
             ) from exc
 
     def save_bm25(self, path: str) -> None:
-        """Save BM25 index to a directory using bm25s native format (no pickle)."""
+        """Save BM25 index atomically: write to a temp dir, then rename."""
         if self._bm25 is None:
             raise RuntimeError("No BM25 index in memory. Run index() before save_bm25().")
         save_dir = Path(path)
-        save_dir.mkdir(parents=True, exist_ok=True)
-        self._bm25.save(str(save_dir), show_progress=False)
-        (save_dir / "chunk_ids.json").write_text(
-            json.dumps(self._chunk_ids), encoding="utf-8"
-        )
+        tmp_dir = save_dir.parent / (save_dir.name + ".tmp")
+        try:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir)
+            tmp_dir.mkdir(parents=True)
+            self._bm25.save(str(tmp_dir), show_progress=False)
+            (tmp_dir / "chunk_ids.json").write_text(
+                json.dumps(self._chunk_ids), encoding="utf-8"
+            )
+            if save_dir.exists():
+                shutil.rmtree(save_dir)
+            tmp_dir.rename(save_dir)
+        except Exception:
+            if tmp_dir.exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise
 

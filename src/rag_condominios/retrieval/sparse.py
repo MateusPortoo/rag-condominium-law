@@ -20,6 +20,10 @@ def load_index(index_path: str | Path) -> tuple[Any, list[str]]:
     that maps BM25 result positions back to Qdrant chunk identifiers.
     """
     index_path = Path(index_path)
+    if not index_path.exists():
+        raise RuntimeError(
+            f"BM25 index not found at {index_path!r}. Run POST /ingest or scripts/run_ingest.py first."
+        )
     try:
         retriever = bm25s.BM25.load(str(index_path), load_corpus=False, show_progress=False)
         chunk_ids: list[str] = json.loads(

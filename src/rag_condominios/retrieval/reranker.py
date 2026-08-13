@@ -43,8 +43,8 @@ class _CrossEncoderReranker:
         try:
             raw_scores: list[float] = self._model.predict(pairs).tolist()  # type: ignore[arg-type]
         except Exception as exc:  # noqa: BLE001 — OOM/CUDA/shape errors degrade to rrf_score
-            _log.error(
-                "CrossEncoder.predict failed (model=%s n_pairs=%d): %s",
+            _log.warning(
+                "CrossEncoder.predict failed (model=%s n_pairs=%d): %s — degrading to rrf_score",
                 self._model_name, len(pairs), exc,
             )
             return [
@@ -100,4 +100,10 @@ def create_reranker(model_name: str) -> "MsMarcoReranker | BgeReranker":
     """Factory: return the right reranker class for the given model name."""
     if model_name == RERANKER_MODEL_BGE:
         return BgeReranker()
+    if model_name != RERANKER_MODEL_MSMARCO:
+        _log.warning(
+            "Unknown reranker model %r — falling back to MsMarcoReranker. "
+            "Set RERANKER_MODEL to %r or %r.",
+            model_name, RERANKER_MODEL_MSMARCO, RERANKER_MODEL_BGE,
+        )
     return MsMarcoReranker()
