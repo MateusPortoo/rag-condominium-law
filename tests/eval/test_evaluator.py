@@ -248,6 +248,7 @@ class TestEvaluateGoldenSet:
         fake_scores = MagicMock()
         fake_scores.to_pandas.return_value = self._fake_scores_df()
 
+        ragas_mocks = self._mock_ragas_modules(fake_scores)
         with (
             patch("rag_condominios.eval.evaluator.retrieve", return_value=[chunk]),
             patch(
@@ -255,7 +256,7 @@ class TestEvaluateGoldenSet:
                 return_value=(ranked, "correct"),
             ),
             patch("rag_condominios.eval.evaluator.generate", return_value="Resposta OK."),
-            patch.dict(sys.modules, self._mock_ragas_modules(fake_scores)),
+            patch.dict(sys.modules, ragas_mocks),
         ):
             report = evaluate_golden_set(
                 cases=self._cases(),
@@ -269,6 +270,15 @@ class TestEvaluateGoldenSet:
         assert report.n_cases == 3
         assert report.verdict_distribution == {"correct": 3}
         assert report.by_category != {}
+
+        # Verify ragas 0.2.x field names are used (not the old 0.1.x names).
+        first_call_kwargs = ragas_mocks["ragas"].SingleTurnSample.call_args_list[0].kwargs
+        assert "user_input" in first_call_kwargs
+        assert "retrieved_contexts" in first_call_kwargs
+        assert "reference" in first_call_kwargs
+        assert "question" not in first_call_kwargs
+        assert "contexts" not in first_call_kwargs
+        assert "ground_truth" not in first_call_kwargs
 
     def test_skips_failed_cases_and_evaluates_rest(self) -> None:
         openai, groq, qdrant = _clients()

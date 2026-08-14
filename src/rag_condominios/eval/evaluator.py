@@ -12,9 +12,9 @@ from rag_condominios.core.protocols import BaseReranker, BM25Retriever
 from rag_condominios.retrieval.generator import GROQ_MODEL, generate
 from rag_condominios.retrieval.pipeline import rerank_and_evaluate, retrieve
 
-# ragas and datasets are imported lazily inside evaluate_golden_set() to avoid
-# a broken top-level import in ragas that pulls in langchain_community.vertexai.
-# Unit tests that only import EvalReport or EvalCase are not affected.
+# ragas is imported lazily inside evaluate_golden_set() because it pulls heavy
+# ML deps at import time. Keeping the import at call site leaves this module
+# cheap for callers that only use EvalReport or EvalCase.
 
 _log = logging.getLogger(__name__)
 
@@ -97,6 +97,9 @@ def _run_pipeline_for_case(
         return None
 
     contexts = [r.text for r in ranked if r.text]
+    if not contexts:
+        _log.warning("no text contexts for question=%r — skipping case", question[:60])
+        return None
 
     return EvalCase(
         question=question,
@@ -120,8 +123,8 @@ def evaluate_golden_set(
     """Run the full retrieval+reranking+generation pipeline on every evaluable
     case, then score with RAGAS.
 
-    RAGAS expects a HuggingFace Dataset with columns:
-      question, answer, contexts (list[str]), ground_truth
+    ragas 0.2.x: uses EvaluationDataset + SingleTurnSample.
+    Fields: user_input, response, retrieved_contexts, reference.
     """
     eval_cases: list[EvalCase] = []
     for i, case in enumerate(cases):
@@ -172,13 +175,14 @@ def evaluate_golden_set(
     # Typed as Any: ragas stubs are incomplete and EvaluationResult is not
     # explicitly exported, making the union type unresolvable under mypy strict.
     scores: Any = ragas_evaluate(dataset, metrics=ragas_metrics)
-    scores_dict: dict[str, Any] = scores.to_pandas().mean().to_dict()
+    scores_df = scores.to_pandas()
+    scores_dict: dict[str, Any] = scores_df.mean().to_dict()
 
     # Per-category breakdown
     by_category: dict[str, dict[str, float]] = {}
     for cat in sorted({c.category for c in eval_cases}):
         cat_indices = [i for i, c in enumerate(eval_cases) if c.category == cat]
-        cat_df = scores.to_pandas().iloc[cat_indices]
+        cat_df = scores_df.iloc[cat_indices]
         by_category[cat] = {k: float(v) for k, v in cat_df.mean().to_dict().items()}
 
     # CRAG verdict distribution for observability
