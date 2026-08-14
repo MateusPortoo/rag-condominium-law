@@ -13,6 +13,7 @@ from openai import OpenAI
 from qdrant_client import QdrantClient
 from qdrant_client.models import ScoredPoint
 
+from rag_condominios.core.config import COLLECTION_NAME
 from rag_condominios.core.protocols import BM25Retriever
 from rag_condominios.retrieval.dense import embed_query, search_dense
 from rag_condominios.retrieval.fusion import reciprocal_rank_fusion
@@ -71,12 +72,32 @@ def retrieve(
             cid = str(point.payload.get("chunk_id", point.id))
             payload_by_id[cid] = point.payload
 
+    # Fetch payloads for chunk_ids that appear only in BM25 (not covered by dense results)
+    bm25_only_ids = [cid for cid, _ in fused if cid not in payload_by_id]
+    if bm25_only_ids:
+        from qdrant_client.models import FieldCondition, Filter, MatchAny
+        try:
+            bm25_points, _ = qdrant_client.scroll(
+                collection_name=COLLECTION_NAME,
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="chunk_id", match=MatchAny(any=bm25_only_ids))]
+                ),
+                with_payload=True,
+                limit=len(bm25_only_ids),
+            )
+            for bm25_pt in bm25_points:
+                if bm25_pt.payload:
+                    cid = str(bm25_pt.payload.get("chunk_id", bm25_pt.id))
+                    payload_by_id[cid] = bm25_pt.payload
+        except Exception as exc:  # noqa: BLE001 — payload fetch failure is non-fatal
+            _log.warning("BM25-only payload fetch failed: %s", exc)
+
     results: list[RetrievalResult] = []
     for chunk_id, rrf_score in fused:
         payload = payload_by_id.get(chunk_id)
         if payload is None:
-            _log.warning("No Qdrant payload for chunk_id=%s (BM25-only hit) — text will be empty", chunk_id)
-            payload = {}
+            _log.warning("No payload for chunk_id=%s after BM25-only lookup — dropping chunk", chunk_id)
+            continue
         results.append(
             RetrievalResult(
                 chunk_id=chunk_id,

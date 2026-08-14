@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     crag_ambiguous_threshold: float = CRAG_AMBIGUOUS_THRESHOLD
     allowed_domains: str = "planalto.gov.br,jusbrasil.com.br,stj.jus.br"
     reranker_model: str = RERANKER_MODEL
+    ingest_api_key: str = ""  # set INGEST_API_KEY env var to protect POST /ingest
 
     @property
     def allowed_domains_list(self) -> list[str]:
