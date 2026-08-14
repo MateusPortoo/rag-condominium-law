@@ -79,15 +79,25 @@ def _recursive_split(text: str, separators: list[str], chunk_size: int, overlap:
     return result
 
 
-def _apply_overlap(chunks: list[str], overlap: int, encoder: tiktoken.Encoding) -> list[str]:
-    """Prepend the tail of the previous chunk to maintain context continuity."""
+def _apply_overlap(chunks: list[str], overlap: int, chunk_size: int, encoder: tiktoken.Encoding) -> list[str]:
+    """Prepend the tail of the previous chunk to maintain context continuity.
+
+    Caps the prepended prefix so the resulting chunk never exceeds chunk_size tokens.
+    Without this cap, each overlapped chunk could reach chunk_size + overlap tokens.
+    """
     if len(chunks) <= 1:
         return chunks
 
     result = [chunks[0]]
     for i in range(1, len(chunks)):
+        chunk_tokens = encoder.encode(chunks[i])
+        available = chunk_size - len(chunk_tokens)
+        if available <= 0:
+            result.append(chunks[i])
+            continue
         prev_tokens = encoder.encode(chunks[i - 1])
-        overlap_tokens = prev_tokens[-overlap:] if len(prev_tokens) >= overlap else prev_tokens
+        take = min(overlap, available)
+        overlap_tokens = prev_tokens[-take:] if len(prev_tokens) >= take else prev_tokens
         overlap_text = encoder.decode(overlap_tokens)
         result.append(overlap_text + " " + chunks[i])
     return result
@@ -109,7 +119,7 @@ def chunk_articles(
         secao = article["secao"]
 
         raw_splits = _recursive_split(text, SEPARATORS, chunk_size, overlap, encoder)
-        overlapping_splits = _apply_overlap(raw_splits, overlap, encoder)
+        overlapping_splits = _apply_overlap(raw_splits, overlap, chunk_size, encoder)
 
         for index, chunk_text in enumerate(overlapping_splits):
             token_count = _count_tokens(chunk_text, encoder)

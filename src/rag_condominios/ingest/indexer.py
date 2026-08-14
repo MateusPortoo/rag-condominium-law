@@ -6,6 +6,7 @@ from pathlib import Path
 
 import bm25s
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from rag_condominios.core.config import COLLECTION_NAME
@@ -24,10 +25,14 @@ class Indexer:
         existing = [c.name for c in self._qdrant.get_collections().collections]
         if COLLECTION_NAME in existing:
             return
-        self._qdrant.create_collection(
-            collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
-        )
+        try:
+            self._qdrant.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+            )
+        except UnexpectedResponse as exc:
+            if exc.status_code != 409:  # 409 = already created by concurrent ingest
+                raise
 
     def _build_qdrant_points(
         self,
