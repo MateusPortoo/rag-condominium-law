@@ -143,8 +143,8 @@ def evaluate_golden_set(
             n_cases=0,
         )
 
-    # Lazy imports — ragas has a broken top-level import on langchain_community.vertexai
-    from datasets import Dataset
+    # Lazy imports to avoid slow top-level import of ragas (pulls heavy deps).
+    from ragas import EvaluationDataset, SingleTurnSample
     from ragas import evaluate as ragas_evaluate
     from ragas.metrics import (
         answer_relevancy,
@@ -155,15 +155,21 @@ def evaluate_golden_set(
 
     ragas_metrics = [context_precision, context_recall, faithfulness, answer_relevancy]
 
-    dataset = Dataset.from_dict({
-        "question": [c.question for c in eval_cases],
-        "answer": [c.answer for c in eval_cases],
-        "contexts": [c.contexts for c in eval_cases],
-        "ground_truth": [c.reference_answer for c in eval_cases],
-    })
+    # ragas 0.2.x: EvaluationDataset + SingleTurnSample replace HF Dataset.
+    # Column renames: question->user_input, answer->response,
+    #                 contexts->retrieved_contexts, ground_truth->reference.
+    dataset = EvaluationDataset(samples=[
+        SingleTurnSample(
+            user_input=c.question,
+            response=c.answer,
+            retrieved_contexts=c.contexts,
+            reference=c.reference_answer,
+        )
+        for c in eval_cases
+    ])
 
-    # RAGAS uses OpenAI internally as LLM judge â€” uses the key from environment.
-    # Typed as Any: ragas 0.4.x stubs are incomplete and EvaluationResult is not
+    # RAGAS uses OpenAI internally as LLM judge — uses OPENAI_API_KEY from env.
+    # Typed as Any: ragas stubs are incomplete and EvaluationResult is not
     # explicitly exported, making the union type unresolvable under mypy strict.
     scores: Any = ragas_evaluate(dataset, metrics=ragas_metrics)
     scores_dict: dict[str, Any] = scores.to_pandas().mean().to_dict()

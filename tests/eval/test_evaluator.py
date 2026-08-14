@@ -226,19 +226,15 @@ class TestEvaluateGoldenSet:
         return df
 
     def _mock_ragas_modules(self, fake_scores: MagicMock) -> dict:
-        mock_dataset_cls = MagicMock()
-        mock_dataset_cls.from_dict.return_value = MagicMock()
-
-        mock_datasets_mod = MagicMock()
-        mock_datasets_mod.Dataset = mock_dataset_cls
-
         mock_ragas_mod = MagicMock()
         mock_ragas_mod.evaluate = MagicMock(return_value=fake_scores)
+        # EvaluationDataset and SingleTurnSample are constructors — return a MagicMock.
+        mock_ragas_mod.EvaluationDataset = MagicMock(return_value=MagicMock())
+        mock_ragas_mod.SingleTurnSample = MagicMock(return_value=MagicMock())
 
         mock_metrics_mod = MagicMock()
 
         return {
-            "datasets": mock_datasets_mod,
             "ragas": mock_ragas_mod,
             "ragas.metrics": mock_metrics_mod,
         }
