@@ -110,7 +110,10 @@ def rerank_and_evaluate(
     if reranker is None:
         _log.warning("reranker not injected — instantiating %s as fallback", _settings.reranker_model)
     _reranker: BaseReranker = reranker or _create_reranker(_settings.reranker_model)
-    _evaluator: BaseCRAGEvaluator = evaluator or _CRAGEvaluator()
+    _evaluator: BaseCRAGEvaluator = evaluator or _CRAGEvaluator(
+        correct_threshold=_settings.crag_correct_threshold,
+        ambiguous_threshold=_settings.crag_incorrect_threshold,
+    )
     ranked = cast(list[_RankedResult], _reranker.rerank(query, results))
     verdict = _evaluator.evaluate(ranked)
     return ranked, verdict
