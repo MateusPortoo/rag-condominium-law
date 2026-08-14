@@ -29,8 +29,7 @@ dev = [
     "ruff>=0.5.0",
     "mypy>=1.10.0,<2.0.0",
     "pip-audit>=2.7.0",
-    "ragas>=0.1.0",
-    "datasets>=2.19.0",
+    "ragas>=0.2.0,<0.3.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -45,7 +44,7 @@ python_version = "3.11"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["bm25s", "datasets"]
+module = ["bm25s", "ragas", "ragas.metrics"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -12,9 +12,9 @@ from rag_condominios.core.protocols import BaseReranker, BM25Retriever
 from rag_condominios.retrieval.generator import GROQ_MODEL, generate
 from rag_condominios.retrieval.pipeline import rerank_and_evaluate, retrieve
 
-# ragas and datasets are imported lazily inside evaluate_golden_set() to avoid
-# a broken top-level import in ragas that pulls in langchain_community.vertexai.
-# Unit tests that only import EvalReport or EvalCase are not affected.
+# ragas is imported lazily inside evaluate_golden_set() because it pulls heavy
+# ML deps at import time. Keeping the import at call site leaves this module
+# cheap for callers that only use EvalReport or EvalCase.
 
 _log = logging.getLogger(__name__)
 
@@ -97,6 +97,9 @@ def _run_pipeline_for_case(
         return None
 
     contexts = [r.text for r in ranked if r.text]
+    if not contexts:
+        _log.warning("no text contexts for question=%r — skipping case", question[:60])
+        return None
 
     return EvalCase(
         question=question,
@@ -120,8 +123,8 @@ def evaluate_golden_set(
     """Run the full retrieval+reranking+generation pipeline on every evaluable
     case, then score with RAGAS.
 
-    RAGAS expects a HuggingFace Dataset with columns:
-      question, answer, contexts (list[str]), ground_truth
+    ragas 0.2.x: uses EvaluationDataset + SingleTurnSample.
+    Fields: user_input, response, retrieved_contexts, reference.
     """
     eval_cases: list[EvalCase] = []
     for i, case in enumerate(cases):
@@ -143,8 +146,8 @@ def evaluate_golden_set(
             n_cases=0,
         )
 
-    # Lazy imports — ragas has a broken top-level import on langchain_community.vertexai
-    from datasets import Dataset
+    # Lazy imports to avoid slow top-level import of ragas (pulls heavy deps).
+    from ragas import EvaluationDataset, SingleTurnSample
     from ragas import evaluate as ragas_evaluate
     from ragas.metrics import (
         answer_relevancy,
@@ -155,24 +158,31 @@ def evaluate_golden_set(
 
     ragas_metrics = [context_precision, context_recall, faithfulness, answer_relevancy]
 
-    dataset = Dataset.from_dict({
-        "question": [c.question for c in eval_cases],
-        "answer": [c.answer for c in eval_cases],
-        "contexts": [c.contexts for c in eval_cases],
-        "ground_truth": [c.reference_answer for c in eval_cases],
-    })
+    # ragas 0.2.x: EvaluationDataset + SingleTurnSample replace HF Dataset.
+    # Column renames: question->user_input, answer->response,
+    #                 contexts->retrieved_contexts, ground_truth->reference.
+    dataset = EvaluationDataset(samples=[
+        SingleTurnSample(
+            user_input=c.question,
+            response=c.answer,
+            retrieved_contexts=c.contexts,
+            reference=c.reference_answer,
+        )
+        for c in eval_cases
+    ])
 
-    # RAGAS uses OpenAI internally as LLM judge â€” uses the key from environment.
-    # Typed as Any: ragas 0.4.x stubs are incomplete and EvaluationResult is not
+    # RAGAS uses OpenAI internally as LLM judge — uses OPENAI_API_KEY from env.
+    # Typed as Any: ragas stubs are incomplete and EvaluationResult is not
     # explicitly exported, making the union type unresolvable under mypy strict.
     scores: Any = ragas_evaluate(dataset, metrics=ragas_metrics)
-    scores_dict: dict[str, Any] = scores.to_pandas().mean().to_dict()
+    scores_df = scores.to_pandas()
+    scores_dict: dict[str, Any] = scores_df.mean().to_dict()
 
     # Per-category breakdown
     by_category: dict[str, dict[str, float]] = {}
     for cat in sorted({c.category for c in eval_cases}):
         cat_indices = [i for i, c in enumerate(eval_cases) if c.category == cat]
-        cat_df = scores.to_pandas().iloc[cat_indices]
+        cat_df = scores_df.iloc[cat_indices]
         by_category[cat] = {k: float(v) for k, v in cat_df.mean().to_dict().items()}
 
     # CRAG verdict distribution for observability
