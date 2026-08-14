@@ -66,9 +66,16 @@ jobs:
       - name: Audit dependencies
         # pip-audit cannot audit local packages not on PyPI; exclude the local package.
         # PYSEC-2026-2447: diskcache (transitive dep of ragas, no fixed version available).
+        # PYSEC-2026-3046: ragas itself, no fix available in any stable release.
+        # PYSEC-2026-3047: ragas itself, fix is in 0.3.0rc1 (RC, not stable yet).
+        # TODO: remove PYSEC-2026-3046 and PYSEC-2026-3047 after upgrading to ragas>=0.3.0 stable.
+        # ragas is a dev-only eval tool — not included in the production Docker image.
         run: |
           pip freeze | grep -v "^rag-condominios" > /tmp/audit-reqs.txt
-          pip-audit -r /tmp/audit-reqs.txt --ignore-vuln PYSEC-2026-2447
+          pip-audit -r /tmp/audit-reqs.txt \
+            --ignore-vuln PYSEC-2026-2447 \
+            --ignore-vuln PYSEC-2026-3046 \
+            --ignore-vuln PYSEC-2026-3047
 
   docker-build:
     name: Docker Build
