@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     openai_frontier_model: str = ""
     semantic_cache_threshold: float = 0.95
     crag_correct_threshold: float = CRAG_CORRECT_THRESHOLD
-    crag_incorrect_threshold: float = CRAG_AMBIGUOUS_THRESHOLD
+    crag_ambiguous_threshold: float = CRAG_AMBIGUOUS_THRESHOLD
     allowed_domains: str = "planalto.gov.br,jusbrasil.com.br,stj.jus.br"
     reranker_model: str = RERANKER_MODEL
 
