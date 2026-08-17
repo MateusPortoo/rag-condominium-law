@@ -27,7 +27,10 @@ if TYPE_CHECKING:
 _log = logging.getLogger(__name__)
 
 _WEB_SEARCH_TIMEOUT = 5
-_DDGO_URL = "https://api.duckduckgo.com/"
+_DDGO_HTML_URL = "https://html.duckduckgo.com/html/"
+_DDGO_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
+}
 _REWRITE_SYSTEM = (
     "Reescreva a pergunta em formato compacto para busca na web. "
     "Responda APENAS com a query de busca, sem explicação."
@@ -50,44 +53,53 @@ def decompose_recompose(
 ) -> list[RankedResult]:
     """Filter each chunk to only the sentences relevant to the query.
 
-    Splits chunk text into strips at sentence boundaries, scores each strip
-    via the reranker, and rebuilds the chunk text from only relevant strips.
-    Chunks where no strip survives are dropped entirely.
+    Batches ALL strips from ALL chunks into a single reranker call instead of
+    one call per chunk, which eliminates N serial model forward passes.
+    Thread-safe: the reranker's internal lock serializes concurrent predict calls.
     """
     from rag_condominios.retrieval.pipeline import RetrievalResult as _RetrievalResult
     from rag_condominios.retrieval.reranker import RankedResult as _RankedResult
 
-    refined: list[RankedResult] = []
+    # Collect strips for all chunks in one pass
+    chunk_strips: list[list[str]] = []
+    all_strip_results: list[_RetrievalResult] = []
 
     for chunk in ranked:
         strips = [s.strip() for s in chunk.text.split(". ") if s.strip()]
-        if not strips:
-            continue
-
-        strip_results = [
-            _RetrievalResult(
-                chunk_id=f"{chunk.chunk_id}__strip_{i}",
-                rrf_score=chunk.rrf_score,
-                text=strip,
-                lei=chunk.lei,
-                artigo=chunk.artigo,
+        chunk_strips.append(strips)
+        for i, strip in enumerate(strips):
+            all_strip_results.append(
+                _RetrievalResult(
+                    chunk_id=f"{chunk.chunk_id}__strip_{i}",
+                    rrf_score=chunk.rrf_score,
+                    text=strip,
+                    lei=chunk.lei,
+                    artigo=chunk.artigo,
+                )
             )
+
+    if not all_strip_results:
+        return ranked
+
+    # Single reranker call for all strips across all chunks
+    all_scored = reranker.rerank(query, all_strip_results)
+    score_by_id = {r.chunk_id: r.rerank_score for r in all_scored}
+
+    refined: list[RankedResult] = []
+    for chunk, strips in zip(ranked, chunk_strips):
+        relevant_texts = [
+            strip
             for i, strip in enumerate(strips)
+            if score_by_id.get(f"{chunk.chunk_id}__strip_{i}", 0.0) > CRAG_AMBIGUOUS_THRESHOLD
         ]
-
-        scored = reranker.rerank(query, strip_results)
-        relevant = [r for r in scored if r.rerank_score > CRAG_AMBIGUOUS_THRESHOLD]
-
-        if not relevant:
+        if not relevant_texts:
             continue
-
-        recomposed = ". ".join(r.text for r in relevant)
         refined.append(
             _RankedResult(
                 chunk_id=chunk.chunk_id,
                 rrf_score=chunk.rrf_score,
                 rerank_score=chunk.rerank_score,
-                text=recomposed,
+                text=". ".join(relevant_texts),
                 lei=chunk.lei,
                 artigo=chunk.artigo,
             )
@@ -116,39 +128,51 @@ def _rewrite_for_web(query: str, groq_client: Groq) -> str:
 
 
 def _ddgo_snippets(search_query: str, domain: str) -> list[str] | None:
-    """Fetch DuckDuckGo snippets for one domain.
+    """Fetch DuckDuckGo HTML search snippets for one domain.
 
-    Returns None on network/parse failure (signals timed_out to caller),
+    Uses the DDG HTML endpoint (real web search) instead of the Instant Answer
+    API (which returns empty results for legal queries). Parses result snippets
+    with BeautifulSoup — beautifulsoup4 is a core project dependency.
+
+    Returns None on network failure (signals timed_out to caller),
     or a list (possibly empty) on a successful response.
     """
-    params = {
-        "q": f"site:{domain} {search_query}",
-        "format": "json",
-        "no_html": "1",
-    }
-    try:
-        resp = requests.get(_DDGO_URL, params=params, timeout=_WEB_SEARCH_TIMEOUT)
-        resp.raise_for_status()
-        data = resp.json()
-    except (requests.exceptions.RequestException, ValueError) as exc:
-        _log.warning("DuckDuckGo fetch failed for domain %s: %s", domain, exc)
-        return None
+    from bs4 import BeautifulSoup
 
     from rag_condominios.api.security import detect_injection
 
     _MAX_SNIPPET_LEN = 500
     _MAX_SNIPPETS = 10
 
+    params = {"q": f"site:{domain} {search_query}"}
+    try:
+        resp = requests.get(
+            _DDGO_HTML_URL,
+            params=params,
+            headers=_DDGO_HEADERS,
+            timeout=_WEB_SEARCH_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as exc:
+        _log.warning("DuckDuckGo fetch failed for domain %s: %s", domain, exc)
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
     snippets: list[str] = []
-    abstract = data.get("AbstractText", "")
-    if abstract and not detect_injection(abstract):
-        snippets.append(abstract[:_MAX_SNIPPET_LEN])
-    for item in data.get("RelatedTopics", []):
+    for elem in soup.select(".result__snippet"):
         if len(snippets) >= _MAX_SNIPPETS:
             break
-        text = item.get("Text", "")
+        text = elem.get_text(" ", strip=True)[:_MAX_SNIPPET_LEN]
         if text and not detect_injection(text):
-            snippets.append(text[:_MAX_SNIPPET_LEN])
+            snippets.append(text)
+
+    if not snippets and "<html" in resp.text[:200].lower():
+        _log.warning(
+            "DDG returned HTML for domain=%s but no .result__snippet found "
+            "— DDG HTML structure may have changed",
+            domain,
+        )
+
     return snippets
 
 

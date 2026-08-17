@@ -1,12 +1,27 @@
-version: "3.9"
 services:
   api:
     build: .
     ports:
       - "8000:8000"
-    env_file: .env
+    environment:
+      - QDRANT_URL
+      - QDRANT_API_KEY
+      - OPENAI_API_KEY
+      - GROQ_API_KEY
+      - OPENAI_FRONTIER_MODEL
+      - RERANKER_MODEL
+      - SEMANTIC_CACHE_THRESHOLD=0.95
+      - CRAG_CORRECT_THRESHOLD=0.75
+      - CRAG_AMBIGUOUS_THRESHOLD=0.70
+      - ALLOWED_DOMAINS=planalto.gov.br,jusbrasil.com.br,stj.jus.br
+    volumes:
+      - bm25_data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 120s
+
+volumes:
+  bm25_data:

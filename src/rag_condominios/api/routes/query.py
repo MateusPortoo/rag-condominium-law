@@ -25,7 +25,7 @@ from rag_condominios.api.schemas import (
 )
 from rag_condominios.api.security import detect_injection
 from rag_condominios.api.state import AppState
-from rag_condominios.core.config import settings
+from rag_condominios.core.config import EMBEDDING_MODEL, settings
 from rag_condominios.retrieval.crag_actions import (
     ambiguous_action,
     decompose_recompose,
@@ -34,6 +34,7 @@ from rag_condominios.retrieval.crag_actions import (
 from rag_condominios.retrieval.generator import GROQ_MODEL, generate, generate_stream
 from rag_condominios.retrieval.pipeline import (
     RetrievalResult,
+    fetch_bm25_only_payloads,
     rerank_and_evaluate,
     retrieve,
 )
@@ -82,27 +83,35 @@ def _retrieve_with_transforms(
     openai_client: OpenAI,
     groq_client: Groq,
     qdrant_client: QdrantClient,
+    query_vector: list[float] | None = None,
 ) -> list[RetrievalResult]:
-    """Run original + HyDE + multi-query retrieval and fuse via RRF."""
+    """Run original + HyDE + multi-query retrieval and fuse via RRF.
+
+    `query_vector` is the pre-computed embedding from the cache-lookup step.
+    Passing it avoids a redundant OpenAI API call on every cache miss.
+    """
     from rag_condominios.retrieval.dense import embed_query, search_dense
     from rag_condominios.retrieval.fusion import reciprocal_rank_fusion
     from rag_condominios.retrieval.sparse import search_sparse
 
     hyde_emb, alt_queries = transform_parallel(question, groq_client, openai_client)
 
-    # Original dense + sparse
-    orig_vector = embed_query(question, openai_client)
+    # Original dense + sparse (reuse pre-computed vector when available)
+    orig_vector = query_vector if query_vector is not None else embed_query(question, openai_client)
     orig_dense = search_dense(orig_vector, qdrant_client)
     orig_sparse = search_sparse(question, state.bm25_retriever, state.bm25_chunk_ids)
 
     # HyDE dense (skip if embedding is empty — HyDE failed gracefully)
     hyde_dense = search_dense(hyde_emb, qdrant_client) if hyde_emb else []
 
-    # Multi-query dense results
+    # Multi-query dense results — batched into a single embedding API call
     multi_dense_all = []
-    for alt in alt_queries:
-        alt_vec = embed_query(alt, openai_client)
-        multi_dense_all.extend(search_dense(alt_vec, qdrant_client))
+    if alt_queries:
+        batch_response = openai_client.embeddings.create(
+            model=EMBEDDING_MODEL, input=alt_queries
+        )
+        for emb_data in batch_response.data:
+            multi_dense_all.extend(search_dense(emb_data.embedding, qdrant_client))
 
     # RRF: fuse all dense sources + original sparse in one pass
     all_dense = orig_dense + hyde_dense + multi_dense_all
@@ -114,12 +123,17 @@ def _retrieve_with_transforms(
             cid = str(point.payload.get("chunk_id", point.id))
             payload_by_id[cid] = point.payload
 
+    # Fetch payloads for BM25-only hits not covered by any dense result set
+    bm25_only_ids = [cid for cid, _ in final_fused if cid not in payload_by_id]
+    if bm25_only_ids:
+        payload_by_id.update(fetch_bm25_only_payloads(qdrant_client, bm25_only_ids))
+
     results: list[RetrievalResult] = []
     for chunk_id, rrf_score in final_fused:
         payload = payload_by_id.get(chunk_id)
         if payload is None:
-            _log.warning("No payload for chunk_id=%s (BM25-only hit) — text will be empty", chunk_id)
-            payload = {}
+            _log.warning("No payload for chunk_id=%s after BM25-only lookup — dropping chunk", chunk_id)
+            continue
         results.append(
             RetrievalResult(
                 chunk_id=chunk_id,
@@ -200,11 +214,12 @@ def _sync_answer(
             query_transformed=None,
         )
 
-    # 2. Query transformations + retrieval
+    # 2. Query transformations + retrieval (reuse query_embedding — no second embed call)
     query_transformed: str | None = None
     try:
         results = _retrieve_with_transforms(
-            question, state, openai_client, groq_client, qdrant_client
+            question, state, openai_client, groq_client, qdrant_client,
+            query_vector=query_embedding,
         )
         query_transformed = "hyde+multi"
     except (GroqAPIError, OpenAIError, UnexpectedResponse, ResponseHandlingException) as exc:
@@ -359,12 +374,13 @@ def _stream_events_inner(
         yield _sse("done", {"latency_ms": latency_ms})
         return
 
-    # 2. Query transform + retrieval
+    # 2. Query transform + retrieval (reuse query_embedding — no second embed call)
     yield _sse("status", {"message": "transformando query..."})
     query_transformed: str | None = None
     try:
         results = _retrieve_with_transforms(
-            question, state, openai_client, groq_client, qdrant_client
+            question, state, openai_client, groq_client, qdrant_client,
+            query_vector=query_embedding,
         )
         query_transformed = "hyde+multi"
     except (GroqAPIError, OpenAIError, UnexpectedResponse, ResponseHandlingException) as exc:
@@ -454,6 +470,18 @@ def _stream_events_inner(
         except (UnexpectedResponse, ResponseHandlingException) as exc:
             _log.warning("semantic cache store failed: %s", exc)
 
+    latency_ms = int((time.monotonic() - t0) * 1000)
+
+    state.record_query(
+        MetricsEntry(
+            question=question,
+            crag_verdict=verdict,
+            latency_ms=latency_ms,
+            model_used=model_name,
+            cached=False,
+        )
+    )
+
     yield _sse("metadata", {
         "crag_verdict": verdict,
         "model_used": model_name,
@@ -467,7 +495,6 @@ def _stream_events_inner(
             for r in ranked[:5]
         ]
     })
-    latency_ms = int((time.monotonic() - t0) * 1000)
     yield _sse("done", {"latency_ms": latency_ms})
 
 

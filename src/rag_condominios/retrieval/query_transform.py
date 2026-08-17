@@ -16,6 +16,9 @@ if TYPE_CHECKING:
     from groq import Groq
     from openai import OpenAI
 
+from rag_condominios.core.config import EMBEDDING_MODEL
+from rag_condominios.retrieval.generator import GROQ_MODEL
+
 _log = logging.getLogger(__name__)
 
 
@@ -39,7 +42,7 @@ _MULTI_QUERY_COUNT = 3
 def _hyde_text(query: str, groq_client: Groq) -> str:
     """Generate a hypothetical document that would answer the query."""
     response = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": _HYDE_SYSTEM},
             {"role": "user", "content": query},
@@ -56,7 +59,7 @@ def _hyde_text(query: str, groq_client: Groq) -> str:
 def _multi_query_texts(query: str, groq_client: Groq) -> list[str]:
     """Generate 3 alternative phrasings of the query."""
     response = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=GROQ_MODEL,
         messages=[
             {"role": "system", "content": _MULTI_QUERY_SYSTEM},
             {"role": "user", "content": query},
@@ -87,7 +90,7 @@ def generate_hyde_embedding(
     """
     hyp_doc = _hyde_text(query, groq_client)
     response = openai_client.embeddings.create(
-        model="text-embedding-3-small",
+        model=EMBEDDING_MODEL,
         input=hyp_doc,
     )
     return response.data[0].embedding

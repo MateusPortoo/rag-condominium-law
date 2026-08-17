@@ -5,6 +5,7 @@ no pipeline code changes required when swapping.
 """
 
 import logging
+import threading
 from dataclasses import dataclass
 
 from sentence_transformers import CrossEncoder
@@ -33,6 +34,7 @@ class _CrossEncoderReranker:
     def __init__(self, model_name: str) -> None:
         self._model: CrossEncoder = CrossEncoder(model_name)
         self._model_name = model_name
+        self._lock = threading.Lock()
 
     def rerank(self, query: str, results: list[RetrievalResult]) -> list[RankedResult]:
         """Score each (query, chunk) pair and return results sorted by score desc."""
@@ -41,7 +43,8 @@ class _CrossEncoderReranker:
 
         pairs = [(query, r.text) for r in results]
         try:
-            raw_scores: list[float] = self._model.predict(pairs).tolist()  # type: ignore[arg-type]
+            with self._lock:
+                raw_scores: list[float] = self._model.predict(pairs).tolist()  # type: ignore[arg-type]
         except Exception as exc:  # noqa: BLE001 — OOM/CUDA/shape errors degrade to rrf_score
             _log.warning(
                 "CrossEncoder.predict failed (model=%s n_pairs=%d): %s — degrading to rrf_score",

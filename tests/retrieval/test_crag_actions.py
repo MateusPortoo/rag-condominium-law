@@ -113,10 +113,12 @@ def test_web_search_returns_snippets_on_success(mock_get: MagicMock) -> None:
     groq = MagicMock()
     groq.chat.completions.create.return_value = _groq_response("lei condominial prazo")
 
-    mock_get.return_value.json.return_value = {
-        "AbstractText": "Trecho da lei sobre prazos.",
-        "RelatedTopics": [{"Text": "Outro trecho relevante."}],
-    }
+    mock_get.return_value.text = (
+        '<html><body>'
+        '<div class="result__snippet">Trecho da lei sobre prazos.</div>'
+        '<div class="result__snippet">Outro trecho relevante.</div>'
+        '</body></html>'
+    )
     mock_get.return_value.raise_for_status.return_value = None
 
     chunks, timed_out = web_search("Qual o prazo?", groq, ["planalto.gov.br"])
@@ -145,7 +147,7 @@ def test_web_search_falls_back_to_original_query_when_groq_fails(mock_get: Magic
     groq_client.chat.completions.create.side_effect = GroqAPIError(
         "groq error", MagicMock(), body=None
     )
-    mock_get.return_value.json.return_value = {"AbstractText": "", "RelatedTopics": []}
+    mock_get.return_value.text = "<html><body></body></html>"
     mock_get.return_value.raise_for_status.return_value = None
 
     chunks, timed_out = web_search("query", groq_client, ["planalto.gov.br"])
@@ -160,7 +162,7 @@ def test_web_search_returns_empty_not_timed_out_when_no_snippets(mock_get: Magic
     # Search succeeds but DuckDuckGo finds nothing → timed_out=False (not a network failure)
     groq = MagicMock()
     groq.chat.completions.create.return_value = _groq_response("rewritten")
-    mock_get.return_value.json.return_value = {"AbstractText": "", "RelatedTopics": []}
+    mock_get.return_value.text = "<html><body></body></html>"
     mock_get.return_value.raise_for_status.return_value = None
 
     chunks, timed_out = web_search("query", groq, ["planalto.gov.br"])
@@ -178,10 +180,11 @@ def test_ambiguous_action_merges_recomposed_and_web(mock_get: MagicMock) -> None
     groq = MagicMock()
     groq.chat.completions.create.return_value = _groq_response("rewritten query")
 
-    mock_get.return_value.json.return_value = {
-        "AbstractText": "Snippet da web.",
-        "RelatedTopics": [],
-    }
+    mock_get.return_value.text = (
+        '<html><body>'
+        '<div class="result__snippet">Snippet da web.</div>'
+        '</body></html>'
+    )
     mock_get.return_value.raise_for_status.return_value = None
 
     chunk = _ranked("c1", "Trecho relevante. Trecho irrelevante.")
