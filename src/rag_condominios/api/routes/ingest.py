@@ -1,5 +1,6 @@
 """POST /ingest - rebuild BM25 index from existing Qdrant data."""
 
+import hmac
 import json
 import logging
 import shutil
@@ -81,7 +82,7 @@ def ingest(
     request: Request,
     x_api_key: str | None = Header(default=None),
 ) -> IngestResponse:
-    if settings.ingest_api_key and x_api_key != settings.ingest_api_key:
+    if settings.ingest_api_key and not hmac.compare_digest(x_api_key or "", settings.ingest_api_key):
         raise HTTPException(status_code=401, detail="Unauthorized.")
 
     state: AppState = request.app.state.rag

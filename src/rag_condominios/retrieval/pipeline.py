@@ -75,22 +75,7 @@ def retrieve(
     # Fetch payloads for chunk_ids that appear only in BM25 (not covered by dense results)
     bm25_only_ids = [cid for cid, _ in fused if cid not in payload_by_id]
     if bm25_only_ids:
-        from qdrant_client.models import FieldCondition, Filter, MatchAny
-        try:
-            bm25_points, _ = qdrant_client.scroll(
-                collection_name=COLLECTION_NAME,
-                scroll_filter=Filter(
-                    must=[FieldCondition(key="chunk_id", match=MatchAny(any=bm25_only_ids))]
-                ),
-                with_payload=True,
-                limit=len(bm25_only_ids),
-            )
-            for bm25_pt in bm25_points:
-                if bm25_pt.payload:
-                    cid = str(bm25_pt.payload.get("chunk_id", bm25_pt.id))
-                    payload_by_id[cid] = bm25_pt.payload
-        except Exception as exc:  # noqa: BLE001 — payload fetch failure is non-fatal
-            _log.warning("BM25-only payload fetch failed: %s", exc)
+        payload_by_id.update(fetch_bm25_only_payloads(qdrant_client, bm25_only_ids))
 
     results: list[RetrievalResult] = []
     for chunk_id, rrf_score in fused:
@@ -108,6 +93,35 @@ def retrieve(
             )
         )
     return results
+
+
+def fetch_bm25_only_payloads(
+    qdrant_client: QdrantClient,
+    bm25_only_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Scroll Qdrant to fetch payloads for chunk_ids not returned by any dense search.
+
+    Returns a mapping of chunk_id → payload dict. Missing IDs are silently omitted.
+    Non-fatal: on error, logs a warning and returns an empty dict.
+    """
+    from qdrant_client.models import FieldCondition, Filter, MatchAny
+    try:
+        points, _ = qdrant_client.scroll(
+            collection_name=COLLECTION_NAME,
+            scroll_filter=Filter(
+                must=[FieldCondition(key="chunk_id", match=MatchAny(any=bm25_only_ids))]
+            ),
+            with_payload=True,
+            limit=len(bm25_only_ids),
+        )
+        return {
+            str(pt.payload.get("chunk_id", pt.id)): pt.payload
+            for pt in points
+            if pt.payload
+        }
+    except Exception as exc:  # noqa: BLE001 — payload fetch failure is non-fatal
+        _log.warning("BM25-only payload fetch failed: %s", exc)
+        return {}
 
 
 def rerank_and_evaluate(

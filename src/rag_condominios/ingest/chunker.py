@@ -84,6 +84,7 @@ def _apply_overlap(chunks: list[str], overlap: int, chunk_size: int, encoder: ti
 
     Caps the prepended prefix so the resulting chunk never exceeds chunk_size tokens.
     Without this cap, each overlapped chunk could reach chunk_size + overlap tokens.
+    The -1 in `available` reserves one token for the space joiner (" ").
     """
     if len(chunks) <= 1:
         return chunks
@@ -91,7 +92,7 @@ def _apply_overlap(chunks: list[str], overlap: int, chunk_size: int, encoder: ti
     result = [chunks[0]]
     for i in range(1, len(chunks)):
         chunk_tokens = encoder.encode(chunks[i])
-        available = chunk_size - len(chunk_tokens)
+        available = chunk_size - len(chunk_tokens) - 1  # -1 for the " " joiner token
         if available <= 0:
             result.append(chunks[i])
             continue

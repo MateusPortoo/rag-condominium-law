@@ -25,7 +25,7 @@ from rag_condominios.api.schemas import (
 )
 from rag_condominios.api.security import detect_injection
 from rag_condominios.api.state import AppState
-from rag_condominios.core.config import COLLECTION_NAME, EMBEDDING_MODEL, settings
+from rag_condominios.core.config import EMBEDDING_MODEL, settings
 from rag_condominios.retrieval.crag_actions import (
     ambiguous_action,
     decompose_recompose,
@@ -34,6 +34,7 @@ from rag_condominios.retrieval.crag_actions import (
 from rag_condominios.retrieval.generator import GROQ_MODEL, generate, generate_stream
 from rag_condominios.retrieval.pipeline import (
     RetrievalResult,
+    fetch_bm25_only_payloads,
     rerank_and_evaluate,
     retrieve,
 )
@@ -125,22 +126,7 @@ def _retrieve_with_transforms(
     # Fetch payloads for BM25-only hits not covered by any dense result set
     bm25_only_ids = [cid for cid, _ in final_fused if cid not in payload_by_id]
     if bm25_only_ids:
-        from qdrant_client.models import FieldCondition, Filter, MatchAny
-        try:
-            bm25_points, _ = qdrant_client.scroll(
-                collection_name=COLLECTION_NAME,
-                scroll_filter=Filter(
-                    must=[FieldCondition(key="chunk_id", match=MatchAny(any=bm25_only_ids))]
-                ),
-                with_payload=True,
-                limit=len(bm25_only_ids),
-            )
-            for bm25_pt in bm25_points:
-                if bm25_pt.payload:
-                    cid = str(bm25_pt.payload.get("chunk_id", bm25_pt.id))
-                    payload_by_id[cid] = bm25_pt.payload
-        except Exception as exc:  # noqa: BLE001
-            _log.warning("BM25-only payload fetch failed in transforms path: %s", exc)
+        payload_by_id.update(fetch_bm25_only_payloads(qdrant_client, bm25_only_ids))
 
     results: list[RetrievalResult] = []
     for chunk_id, rrf_score in final_fused:

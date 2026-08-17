@@ -166,6 +166,13 @@ def _ddgo_snippets(search_query: str, domain: str) -> list[str] | None:
         if text and not detect_injection(text):
             snippets.append(text)
 
+    if not snippets and "<html" in resp.text[:200].lower():
+        _log.warning(
+            "DDG returned HTML for domain=%s but no .result__snippet found "
+            "— DDG HTML structure may have changed",
+            domain,
+        )
+
     return snippets
 
 
